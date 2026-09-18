@@ -1,0 +1,1 @@
+"""Canonical storage adapter boundary."""

@@ -1,0 +1,1 @@
+"""Disposable cache adapter boundary."""

@@ -1,0 +1,143 @@
+# Codex Work Log
+
+Append new findings, status check-ins, decisions, and verification results below with a local timestamp. Existing entries are historical records and should not be rewritten.
+
+## 2026-09-18 11:34:44 EDT — Retrospective record of repository inspection
+
+The inspection below was performed before this log existed. This is the time it was recorded, not a claim about the exact time of each earlier check.
+
+### Previous handoff message
+
+I’ve inspected the handoff, constitution, architecture, feature manifest, assessment brief, and acceptance criteria. This repository is a specification pack for a complete event processing assessment submission; it is not yet an application. I made no changes.
+
+The required system is a FastAPI service that accepts events into a bounded, in-process SQS-style queue, persists them asynchronously to MongoDB, serves queries and aggregations from MongoDB, projects searchable events into Elasticsearch through change streams, and uses Redis for realtime-stat caching and distributed rate limiting. The central guarantee is precise: `POST /events` returns `202` after enqueue, but that acceptance is **not crash-durable** until the worker persists the event. Elasticsearch and Redis must be able to fail without losing canonical events. The locked design is set out in `CODEX-HANDOFF.md` and the constitution.
+
+Delivery includes more than the API: a one-command Docker Compose stack, a small reviewer UI, an executable Postman acceptance flow, online Elasticsearch rebuilds, health and metrics, failure recovery, and documentation that matches the running system. The feature manifest divides this into 25 dependent features. Each must go through the prescribed Spec Kit specification, clarification, plan, tasks, implementation, convergence, and review gates. Final acceptance also requires real-service integration and failure tests, quality checks, Compose smoke, and a successful Postman run, as described in the definition of done and final checklist.
+
+The current state is the initial handoff commit on `main`, with a clean worktree. The source, test, and frontend directories contain boundary READMEs; there is no `pyproject.toml`, lockfile, Compose stack, Makefile, or generated Feature 001 `spec.md`/`plan.md`/`tasks.md`. Spec Kit is available on the host, but its repository bootstrap has not been run. I did not run it because it creates files, and I did not run tests because there is no implementation yet.
+
+A few planning references need correction when work begins: the traceability matrix points several requirements to the wrong feature numbers (for example, event queries to 009 instead of 008, Compose to 022 instead of 021, and Postman to 023 instead of 022). The architecture references Feature 007 for idempotency-key semantics, while Feature 006 owns them. The repository contains a normalized assessment brief, but not the original assignment prompt it says is authoritative; obtaining that prompt would help verify final scope.
+
+### Inspection work log and supporting findings
+
+- Read `CODEX-HANDOFF.md` first, as required by `AGENTS.md`. Read `.specify/memory/constitution.md`, `specs/FEATURE-MANIFEST.yaml`, `docs/assessment-brief.md`, `HANDOFF-INVENTORY.md`, `README.md`, `docs/definition-of-done.md`, `FINAL-ACCEPTANCE-CHECKLIST.md`, `ARCHITECTURE.md`, `specs/MASTER-SPEC.md`, `docs/api-contract.md`, `docs/assumptions.md`, `docs/testing-strategy.md`, `docs/target-repository-layout.md`, `docs/spec-kit-review-workflow.md`, representative feature requests, and delivery support files. Surveyed headings for all 25 `REQUEST.md` files and statuses of all 15 ADRs. All 15 ADRs are marked Accepted.
+- Governing precedence: constitution; locked handoff decisions; accepted ADRs; architecture; accepted feature spec; plan; tasks; implementation convenience. Locked decisions need an explicit superseding ADR and coordinated updates if changed.
+- Required technology and ownership: Python 3.12+, FastAPI/Pydantic v2, PyMongo Async API, MongoDB as the canonical store, Elasticsearch as a rebuildable eventual search projection, Redis as disposable cache and rate-limit state, and one application process for the volatile in-process queue. Async network clients belong to deterministic application lifespan management.
+- Required queue/worker semantics: bounded capacity, send timeout, long polling, receipt handles that change on redelivery, visibility timeout, at-least-once delivery while the process lives, retry classification and bounded backoff/jitter, simulated volatile DLQ, and acknowledgement only after Mongo persistence or an equivalent idempotent replay. Mongo enforces unique immutable `event_id`; a conflicting duplicate must never overwrite canonical data.
+- Required API: `POST /events`; `GET /events` with bounded filters and keyset pagination; `GET /events/stats` with hour/day/week Mongo aggregations; `GET /events/search` with bounded Elasticsearch search and opaque cursor; `GET /events/stats/realtime` with cache-aside behavior and cache outcome; health/component endpoints and Prometheus metrics. Errors use `application/problem+json`.
+- Required search behavior: Mongo change streams feed ES after canonical persistence; checkpoints advance only after ES writes succeed. Search uses a stable alias, versioned backing indices, explicit mapping with `flattened` metadata and derived `metadata_text`, and an online rebuild that bulk projects Mongo while dual-writing live events, verifies convergence, then atomically swaps the alias.
+- Required degradation/security/operations: Redis outage causes Mongo cache bypass and a conservative local rate limiter; Elasticsearch outage does not block ingestion or Mongo reads; Mongo outage stalls persistence and can fill the bounded queue. Rate limiting, input bounds, trusted-proxy rules, JSON logs, request IDs, observable degraded states, readiness/liveness distinction, and graceful shutdown are mandatory.
+- Required reviewer delivery: a Compose stack for app, single-node Mongo replica set plus initialization, Elasticsearch, Redis, and demo UI; a React/TypeScript reviewer console; a Postman collection and local environment with assertions and bounded polling; a complete README, standalone architecture document, SQS migration notes, traceability evidence, and a factual AI workflow section derived from `docs/ai-workflow-log.md`.
+- Feature order is dependency-driven across 001–025: foundation/domain/queue/ingestion/persistence; query/analytics/search/cache/rate limiting; health/lifecycle/security/testing; Compose/Postman/UI/CI; final documentation and whole-repository audit. Per-feature acceptance includes generated Spec Kit artifacts, analyze/converge, meaningful tests, quality checks, staff review with no Blocker, and full review with no Critical. Repository acceptance also requires Compose smoke, Postman, unit/integration/failure suites, and documentation reconciliation.
+- Observed baseline: `git log -1` reported `f59e88e Initial commit: baseline handoff`; `git status --short --branch` reported clean `main`; 122 tracked files. `.specify` contains only its constitution, no `.agents/skills` initialization was present, and the source/test/frontend directories contain README scaffolds rather than implementation. `pyproject.toml`, `uv.lock`, `Dockerfile`, `docker-compose.yml`, `Makefile`, and Feature 001 `spec.md`/`plan.md`/`tasks.md` were absent. `specify`, `uv`, `docker`, and `make` commands were found on the host.
+- Documentation drift observed: `docs/requirements-traceability.md` maps several requirements to the next feature number rather than the manifest owner, including event queries 009 vs 008, stats 010 vs 009, realtime cache 014 vs 013, Compose 022 vs 021, UI 024 vs 023, and Postman 023 vs 022. `ARCHITECTURE.md` attributes optional idempotency-key semantics to Feature 007; the request assigns them to Feature 006. Seed entries in `docs/ai-workflow-log.md` also contain stale feature references. These are planning-reference corrections, not implemented defects.
+- The normalized `docs/assessment-brief.md` states that the original prompt remains the ultimate external requirement. The original prompt was not found among tracked project files, so final equivalence to that source cannot yet be verified.
+- No repository bootstrap, implementation, tests, service startup, or external review were performed during this inspection because the user explicitly requested no coding yet. The repository remained clean at the end of the read-only inspection.
+
+## 2026-09-18 11:34:44 EDT — Log creation status check-in
+
+- User requested that the previous handoff message, remaining findings, and work log be placed in `CODEX_WORK.LOG`, with future findings and status check-ins appended with timestamps.
+- Before creation, `CODEX_WORK.LOG` did not exist and `git status --short --branch` still showed clean `main`.
+- This file is the first repository change. No product code or generated Spec Kit artifacts were changed.
+
+## 2026-09-18 11:35:54 EDT — Repository visibility check
+
+- Verified that the log was written and contains the previous handoff message and detailed inspection record.
+- `git status --short --untracked-files=all` did not show the file because `.gitignore` line 16 (`*.log`) matched `CODEX_WORK.LOG`. `git ls-files --error-unmatch CODEX_WORK.LOG` confirmed it was not tracked.
+- Added the specific `!CODEX_WORK.LOG` exception to `.gitignore` so the requested work log is visible to Git. No other log files were unignored.
+
+## 2026-09-18 11:36:09 EDT — Final validation check-in
+
+- `git status --short --untracked-files=all` now shows only `.gitignore` modified and `CODEX_WORK.LOG` untracked and visible. The file has not been staged or committed.
+- `git check-ignore -v CODEX_WORK.LOG` identifies the specific exception; `git diff --check` produced no whitespace errors for tracked changes.
+- No application code, Spec Kit artifacts, tests, or services were changed or run.
+
+## 2026-09-18 11:36:25 EDT — Verbatim copy of previous user-facing handoff
+
+The earlier "Previous handoff message" entry preserved its wording but rendered repository links as plain paths. The exact message, including links, follows:
+
+I’ve inspected the handoff, constitution, architecture, feature manifest, assessment brief, and acceptance criteria. This repository is a specification pack for a complete event processing assessment submission; it is not yet an application. I made no changes.
+
+The required system is a FastAPI service that accepts events into a bounded, in-process SQS-style queue, persists them asynchronously to MongoDB, serves queries and aggregations from MongoDB, projects searchable events into Elasticsearch through change streams, and uses Redis for realtime-stat caching and distributed rate limiting. The central guarantee is precise: `POST /events` returns `202` after enqueue, but that acceptance is **not crash-durable** until the worker persists the event. Elasticsearch and Redis must be able to fail without losing canonical events. The locked design is set out in [CODEX-HANDOFF.md](/Users/JuanSanchez/SphireProjects/Feathr/CODEX-HANDOFF.md) and the [constitution](/Users/JuanSanchez/SphireProjects/Feathr/.specify/memory/constitution.md).
+
+Delivery includes more than the API: a one-command Docker Compose stack, a small reviewer UI, an executable Postman acceptance flow, online Elasticsearch rebuilds, health and metrics, failure recovery, and documentation that matches the running system. The [feature manifest](/Users/JuanSanchez/SphireProjects/Feathr/specs/FEATURE-MANIFEST.yaml) divides this into 25 dependent features. Each must go through the prescribed Spec Kit specification, clarification, plan, tasks, implementation, convergence, and review gates. Final acceptance also requires real-service integration and failure tests, quality checks, Compose smoke, and a successful Postman run, as described in the [definition of done](/Users/JuanSanchez/SphireProjects/Feathr/docs/definition-of-done.md) and [final checklist](/Users/JuanSanchez/SphireProjects/Feathr/FINAL-ACCEPTANCE-CHECKLIST.md).
+
+The current state is the initial handoff commit on `main`, with a clean worktree. The source, test, and frontend directories contain boundary READMEs; there is no `pyproject.toml`, lockfile, Compose stack, Makefile, or generated Feature 001 `spec.md`/`plan.md`/`tasks.md`. Spec Kit is available on the host, but its repository bootstrap has not been run. I did not run it because it creates files, and I did not run tests because there is no implementation yet.
+
+A few planning references need correction when work begins: the [traceability matrix](/Users/JuanSanchez/SphireProjects/Feathr/docs/requirements-traceability.md:10) points several requirements to the wrong feature numbers (for example, event queries to 009 instead of 008, Compose to 022 instead of 021, and Postman to 023 instead of 022). The architecture references Feature 007 for idempotency-key semantics, while [Feature 006](/Users/JuanSanchez/SphireProjects/Feathr/specs/006-persistence-worker-idempotency/REQUEST.md) owns them. The repository contains a normalized [assessment brief](/Users/JuanSanchez/SphireProjects/Feathr/docs/assessment-brief.md), but not the original assignment prompt it says is authoritative; obtaining that prompt would help verify final scope.
+
+## 2026-09-18 11:48:27 EDT — Retrospective Feature 001 planning work and findings
+
+This entry records the preceding `$speckit-plan` turn at the time of logging; it does not assign this timestamp to each earlier action.
+
+- Read `CODEX-HANDOFF.md` first, then checked the constitution, feature manifest, Feature 001 request, relevant accepted ADRs (0001, 0012, 0013, 0014), architecture, target layout, testing strategy, API guardrails, and Spec Kit skill/template instructions. Feature 001 is the first manifest item and has no dependencies.
+- Initial `setup-plan.sh --json` failed because no active Spec Kit feature or accepted `spec.md` existed. Created `specs/001-platform-foundation/spec.md` from the Feature 001 request, a requirements quality checklist, and local `.specify/feature.json` pointing to the feature directory. The clarify pass found no critical ambiguity requiring a user question. The specification checklist passed 16/16 items.
+- Invoked `./scripts/bootstrap-speckit.sh` as the handoff directs. Spec Kit CLI version 0.16.2 was present, but both mandatory review-extension downloads failed because GitHub DNS resolution was unavailable (`[Errno 8] nodename nor servname provided, or not known`). `specify extension list` reported no installed extensions. `.specify/extensions.yml` did not exist, so there were no `before_plan` or `after_plan` hooks to run. This does not block planning, but the review extensions remain needed before later acceptance review.
+- Re-ran `.specify/scripts/bash/setup-plan.sh --json` successfully. It created `specs/001-platform-foundation/plan.md` and resolved the logical Spec Kit feature identifier `001-platform-foundation`; the actual Git branch remained `main`.
+- Generated Phase 0 `research.md` and Phase 1 `data-model.md`, `contracts/http-foundation.md`, and `quickstart.md`. The plan passes the pre-research and post-design constitution gates with no exception or ADR supersession. No `NEEDS CLARIFICATION` item remains.
+- Research decisions: Python 3.12+ with `pyproject.toml` and committed `uv.lock`; `uv ... --locked` validation; FastAPI no-argument app factory with lifespan-owned settings and future clients; Pydantic Settings v2 with typed foundation defaults and sanitized startup errors; a seven-field RFC 9457-style `application/problem+json` response using `error_code` and `request_id` extensions; Ruff, mypy, pytest, and pytest-asyncio checks. Official primary documentation links and alternatives are recorded in `research.md`.
+- Design scope is intentionally limited to the base service: OpenAPI/docs, `/health/live`, request IDs, configuration validation, central problem handling, package boundaries, and quality tooling. It does not claim event persistence, readiness, metrics, rate limiting, or real-service integration before their owning features.
+- Validation found all seven planning artifacts present and their local Markdown links valid. A placeholder search found no unresolved design markers. An initial whitespace assertion flagged intentional Markdown two-space line breaks, so it was replaced with a focused artifact/link check. No code, runtime, or service tests were run because this turn produced planning artifacts only.
+- Existing unrelated worktree changes and untracked Spec Kit files were preserved. No files were staged or committed. `CODEX_WORK.LOG` remains untracked but visible to Git through the previously added `.gitignore` exception.
+
+## 2026-09-18 11:48:27 EDT — Work-log instruction and status check-in
+
+- User requested that all findings, work-log activity, and status check-ins be appended to `CODEX_WORK.LOG` with timestamps. This entry applies that instruction to the just-completed planning work; future repository work should append new timestamped entries without rewriting historical records.
+- Current status: Feature 001 planning is complete. The next Spec Kit phase is checklist/tasks, followed by analyze and implementation under the handoff workflow. The review extensions remain unavailable until their download succeeds or another authorized installation path is available.
+
+## 2026-09-18 11:49:12 EDT — Serena MCP preference and status check-in
+
+- User requested heavy use of Serena MCP as well. Confirmed that Serena tools are available in this session and read the Serena instructions manual. Future repository navigation, symbol analysis, reference searches, and structure-aware code edits should use Serena where applicable, while following the repository's higher-priority Spec Kit and architecture instructions.
+- No additional product or planning files were changed for this preference. The prior Feature 001 plan remains complete; this entry only records the working approach for subsequent tasks.
+
+## 2026-09-18 11:51:45 EDT — Feature 001 plan rerun and status check-in
+
+- User invoked `$speckit-plan` again. Rechecked the handoff, active feature state, constitution headings, specification requirements, technical context, research decisions, data model, HTTP contract, quickstart, and constitution gates using Serena MCP where useful. The active Spec Kit feature remains `001-platform-foundation` on actual Git branch `main`.
+- `.specify/scripts/bash/setup-plan.sh --json` succeeded and found the existing `specs/001-platform-foundation/plan.md`; it did not overwrite the plan. `.specify/extensions.yml` was absent both before and after planning, so no plan extension hooks were registered.
+- Found and corrected one testability mismatch in `spec.md` SC-002: Feature 001 has no secret setting, so the acceptance check now requires invalid configuration diagnostics to omit the supplied invalid value. This matches the existing settings design and quickstart validation example while retaining the requirement to protect future secret values.
+- Phase 0 research and Phase 1 artifacts remain complete. Structural validation found seven planning artifacts, valid local Markdown links, a 16/16 specification checklist, an explicit no-clarification disposition, and a passing post-design constitution gate. No new technical unknown or gate violation was found.
+- No application implementation, runtime test, service startup, staging, or commit was performed. Existing unrelated worktree changes were preserved. The previously reported review-extension download failure remains unresolved and is relevant to later acceptance review, not this plan rerun.
+
+## 2026-09-18 11:59:11 EDT — Feature 001 checklist and tasks generation
+
+- User invoked `$speckit-tasks` for active Feature 001. Rechecked the handoff workflow with Serena MCP and found that the handoff requires a focused `$speckit-checklist` before task generation. The existing `checklists/requirements.md` was the specification-quality checklist, so created `specs/001-platform-foundation/checklists/foundation.md` with 20 requirements-quality prompts covering correctness, failure behavior, observability, security, tests, and scope boundaries. All 20 prompts trace to the specification.
+- Used `.specify/scripts/bash/check-prerequisites.sh --json --template checklist-template` and `.specify/scripts/bash/setup-tasks.sh --json` successfully. The active feature remained `specs/001-platform-foundation`. `.specify/extensions.yml` was absent before and after checklist/tasks generation, so no registered extension hooks ran.
+- Found a remaining wording mismatch in User Story 2 of `spec.md`: its independent test and invalid-startup acceptance scenario referred to a secret value, although Feature 001 has no secret setting. Updated both to require omission of the supplied invalid value, matching SC-002 and the quickstart example. The standing FR-003 rule still protects future secret settings.
+- Generated `specs/001-platform-foundation/tasks.md` with 27 sequential, unchecked tasks: 4 Setup, 3 Foundational, 4 US1, 5 US2, 5 US3, and 6 Polish. Each task has a path; story tasks carry their `[USn]` label, and `[P]` is limited to file-disjoint work. US1 is the MVP. US2 and US3 can develop separate modules/tests after the US1 factory baseline, with shared `main.py` edits serialized.
+- The task list includes tests because the Feature 001 request/spec explicitly require configuration, lifespan, error-contract, and import-side-effect evidence. It records that real-service integration/failure suites and their final make gates belong to later features and must not be reported as passing empty suites. It also preserves the later staff/full review extension gate without turning the prior network failure into a false acceptance claim.
+- Validation confirmed the strict checklist format, sequential T001-T027 IDs, story labels only within story phases, exact path references, six phase counts, 20/20 checklist traceability, and no template placeholders. An initial local validation assertion counted only references beginning with `[Spec §`; after correcting the validator to count references anywhere in each item, all 20 were found. No application code, runtime tests, staging, commit, or push occurred.
+
+## 2026-09-18 12:01:49 EDT — Feature 001 implementation preflight
+
+- User invoked `$speckit-implement`. Checked active feature prerequisites with `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks`; Feature 001 has the required plan/spec/tasks and design artifacts. `.specify/extensions.yml` is absent, so no implementation or analysis pre-hooks are registered.
+- The implement checklist scan initially found `requirements.md` at 16/16 and `foundation.md` at 0/20 because the latter had been generated as unchecked requirements-review prompts. Reviewed the prompts against the specification, plan, and contract; clarified the spec's deferral of degraded dependency states and structured runtime logging to later features, then marked all 20 satisfied. Both checklists now pass: 20/20 and 16/16.
+- Ran the handoff-required read-only `$speckit-analyze` gate before coding. All 9 functional requirements and 5 measurable criteria map to the 27 tasks; no critical contradiction was found. The one low-severity deferral wording gap was addressed after that analysis in the specification.
+- Verified a Git repository, uv 0.9.27, and host `python3` 3.14.6. No Dockerfile, Node package, ESLint/Prettier config, Terraform, or Helm artifact exists yet, so no tool-specific ignore file was added. The existing `.gitignore` had most Python patterns; appended only missing `venv/`, `dist/`, `build/`, and `*.egg-info/` patterns while preserving its previous `CODEX_WORK.LOG` exception.
+- Implementation is now ready to begin at T001. No application code or runtime test has been executed yet in this turn; current findings are timestamped here before task execution.
+
+## 2026-09-18 12:05:48 EDT — Feature 001 Setup and Foundational checkpoint
+
+- Completed and checked T001-T007 in `tasks.md`: created `pyproject.toml`, resolved `uv.lock`, added package ownership markers across the planned `src/event_platform` boundaries, configured Ruff/mypy/pytest/pytest-asyncio, created the no-argument FastAPI factory/lifespan skeleton, and added four foundation Makefile targets.
+- Sandboxed `uv lock` panicked in the macOS `system-configuration` dynamic store even with `--offline`; the issue was environmental, before dependency resolution. Retried `uv lock` and `uv sync --locked` through the approved unsandboxed command path with `UV_CACHE_DIR=/tmp/feathr-uv-cache`. The lock resolved 31 packages and the sync installed 30 packages using CPython 3.13.11.
+- The first editable install happened before package marker files existed, so a direct import initially raised `ModuleNotFoundError`. Reinstalled only the local editable `event-platform` package with `uv sync --locked --reinstall-package event-platform`; `from event_platform.main import create_app` then succeeded. This was a build-order issue, not an application import bug.
+- Foundational verification: `.venv/bin/ruff check src tests` passed, `.venv/bin/mypy` passed, and the factory import produced the expected app title. No story endpoint or unit suite exists yet. Next work is US1 tests, route, and lifespan smoke.
+
+## 2026-09-18 12:08:35 EDT — User Story 1 checkpoint
+
+- Completed and checked T008-T011. Wrote lifespan/HTTP and fresh-process import-safety tests before the liveness route. The initial focused run failed as expected on `/health/live` returning 404 (1 failed, 2 passed), proving the route test observed missing behavior.
+- Implemented the typed minimal `/health/live` route and registered it in the app factory. The focused rerun passed 3 tests. The base service still starts without external dependency clients; OpenAPI and `/docs` are available, and the TestClient lifespan exits cleanly.
+- The tests emitted two upstream deprecation warnings: Starlette TestClient's current `httpx` path recommends `httpx2`, and its `anyio.abc.BlockingPortal` alias is deprecated. They did not affect the current test result and remain to be evaluated or documented before acceptance.
+- Serena's project config had only a Bash language server, so symbol tools treated new Python files as ignored. Added `python` to `.serena/project.yml` to support future Python symbol use, but the live Serena session still reported only Bash after activation. Serena text search and replacement work for Python files; no unrelated `.serena` content was changed.
+
+## 2026-09-18 12:11:02 EDT — User Story 2 checkpoint
+
+- Completed and checked T012-T016. Wrote settings and app-startup tests first; the initial focused run had 6 failures caused by the not-yet-created settings module (and 1 existing app test passed).
+- Added typed `ServiceSettings` with `EVENT_PLATFORM_` environment variables, defaults `local`/`INFO`, allowed environment/log-level literals, and a classified `SettingsStartupError` that names invalid fields without echoing supplied values. Added `.env.example` with foundation-only defaults and no credentials.
+- App lifespan now loads or accepts one settings object before serving and removes it on exit. The combined US1/US2 focused suite passed 10 tests. The two TestClient dependency deprecation warnings remain, with no new application warning or failure.
+
+## 2026-09-18 12:15:31 EDT — User Story 3 and commit checkpoint
+
+- The user explicitly authorized commits during implementation. I will commit coherent, verified Feature 001 slices and stage only task-related files; no push was requested. Updated the tasks note to reflect that authorization.
+- Wrote T017-T018 problem-response and request-ID tests before implementation. The initial focused run failed in seven expected places, exposing missing problem shape, response headers, and OpenAPI declaration.
+- Completed and checked T019-T021: seven-field `application/problem+json` responses for 404/405/422/500, server-generated `X-Request-ID` propagation, preserved 405 `Allow`, sanitized unexpected errors, and the liveness OpenAPI 500 declaration. The focused US1-US3 suite passed 17 tests. Ruff lint and format checks passed; mypy initially found three handler annotation errors, which I fixed, and then passed 19 source files.
+- Two warnings still originate from installed Starlette/anyio TestClient internals. No application warning was emitted. Documentation and full Makefile verification remain.

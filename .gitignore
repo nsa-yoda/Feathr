@@ -1,6 +1,10 @@
 .venv/
+venv/
 __pycache__/
 *.py[cod]
+dist/
+build/
+*.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -14,3 +18,4 @@ htmlcov/
 node_modules/
 frontend/dist/
 *.log
+!CODEX_WORK.LOG
