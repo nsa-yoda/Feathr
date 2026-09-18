@@ -68,3 +68,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** accept only after actual subprocess output is parsed as JSON, lifecycle events are present, query secrets are absent, and all repository quality targets pass.
 - **Artifacts/code affected:** `src/event_platform/core/logging.py`, `src/event_platform/core/uvicorn_logging.json`, `src/event_platform/core/settings.py`, `src/event_platform/api/problems.py`, `src/event_platform/main.py`, unit tests, traceability, and Feature 001 review artifacts.
 - **Validation/review performed:** Ruff format/lint, strict mypy, 26 unit tests, and empty-safe integration/failure suites passed; the subprocess smoke test passed with reserved-socket startup, event names on every JSON record, and redacted access logging.
+
+### 2026-09-18 — Event domain contract implementation and review
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify, plan, implement, converge, and review Feature 002 before persistence and ingestion features.
+- **AI proposal/contribution:** drafted a bounded Pydantic event input contract, recursive metadata validation, UTC normalization, immutable canonical events, deterministic compact JSON, and SHA-256 payload/idempotency hashes; used Serena search and symbol inspection to verify ownership boundaries and documentation consistency.
+- **What was useful:** boundary-first tests exposed Pydantic tuple coercion and shallow nested mutability; review also required direct-construction UTC enforcement and secret-safe extra-field diagnostics.
+- **Pushback/correction:** numeric limits, control-character rules, empty-key behavior, non-JSON rejection, and the no-latency-SLO position were made explicit in every affected design artifact after review found documentation drift.
+- **Human decision and rationale:** keep Feature 002 pure and infrastructure-free so storage, queue, and HTTP mappings remain dependent features; accept only after focused and full quality gates plus staff/comprehensive review.
+- **Artifacts/code affected:** `specs/002-event-domain-contract/`, `src/event_platform/domain/events.py`, `tests/unit/test_event_domain.py`, `docs/requirements-traceability.md`, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** focused domain tests (27), full unit regression, Ruff format/lint, strict mypy, empty-safe integration/failure suites, and review remediation with no remaining blockers.
