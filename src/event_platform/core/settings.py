@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv.parser import parse_stream
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.exceptions import SettingsError
 
@@ -19,6 +19,9 @@ class ServiceSettings(BaseSettings):
 
     env: Literal["local", "test", "production"] = "local"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    queue_capacity: int = Field(default=1_000, ge=1, le=100_000)
+    queue_visibility_timeout: float = Field(default=30.0, ge=0.0, le=86_400.0)
+    queue_send_timeout: float = Field(default=1.0, ge=0.0, le=60.0)
 
 
 class SettingsStartupError(RuntimeError):

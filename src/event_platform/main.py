@@ -8,9 +8,11 @@ from fastapi import FastAPI
 
 from event_platform.api.middleware.request_id import RequestIdMiddleware
 from event_platform.api.problems import register_problem_handlers
+from event_platform.api.routes.events import router as events_router
 from event_platform.api.routes.health import router as health_router
 from event_platform.core.logging import configure_logging
 from event_platform.core.settings import ServiceSettings, SettingsStartupError, load_settings
+from event_platform.queue import InProcessQueue
 
 logger = logging.getLogger("event_platform.lifecycle")
 
@@ -35,6 +37,11 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             raise
 
         configure_logging(app.state.settings.log_level)
+        app.state.queue = InProcessQueue(
+            capacity=app.state.settings.queue_capacity,
+            visibility_timeout=app.state.settings.queue_visibility_timeout,
+            send_timeout=app.state.settings.queue_send_timeout,
+        )
         logger.info(
             "service startup complete",
             extra={
@@ -45,8 +52,10 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await app.state.queue.close()
             logger.info("service shutdown complete", extra={"event": "service.shutdown"})
             del app.state.settings
+            del app.state.queue
 
     app = FastAPI(
         title="Distributed Event Processing Platform",
@@ -56,4 +65,5 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
     register_problem_handlers(app)
     app.include_router(health_router)
+    app.include_router(events_router)
     return app

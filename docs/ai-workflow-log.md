@@ -101,3 +101,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** capacity includes in-flight messages, receipt handles rotate on every receive, and delete remains valid for an already returned delivery after queue close.
 - **Artifacts/code affected:** `specs/004-inprocess-sqs-queue/`, `src/event_platform/queue/`, `tests/unit/test_in_process_queue.py`, traceability, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** queue tests pass 6/6; full unit suite passes 68 tests with two existing dependency warnings; Ruff and strict mypy pass; integration/failure marker suites are empty-safe.
+
+### 2026-09-18 — Async ingestion API implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** connect Feature 002 canonical events to the Feature 004 queue through `POST /events`.
+- **AI proposal/contribution:** added bounded queue settings/lifespan ownership, a typed FastAPI route, hash-only idempotency header handling, 202 queued responses, safe 503 backpressure, and OpenAPI response declarations.
+- **What was useful:** route tests verify that request IDs remain server-owned, validation uses the existing problem contract, and queue saturation cannot return a false 202.
+- **Pushback/correction:** Mongo is deliberately absent from the request path; durable duplicate semantics remain Feature 006 as required by the request.
+- **Human decision and rationale:** use the queue body as a JSON canonical envelope and close the queue during application shutdown so ownership is explicit within process lifetime.
+- **Artifacts/code affected:** `specs/005-ingestion-api/`, `src/event_platform/api/routes/events.py`, `src/event_platform/core/settings.py`, `src/event_platform/main.py`, and `tests/unit/test_ingestion_api.py`.
+- **Validation/review performed:** focused ingestion tests pass 5/5; full unit suite passes 73 tests with two existing dependency warnings; Ruff and strict mypy pass; integration/failure marker suites are empty-safe.
