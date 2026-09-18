@@ -1,6 +1,5 @@
 """Safe RFC 9457-style problem responses for the HTTP boundary."""
 
-import json
 import logging
 from collections.abc import Mapping
 from http import HTTPStatus
@@ -98,15 +97,15 @@ async def handle_validation_error(request: Request, error: Exception) -> JSONRes
 async def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
     request_id = _request_id(request)
     logger.error(
-        json.dumps(
-            {
-                "event": "http.unhandled_error",
-                "request_id": request_id,
-                "error_type": type(error).__name__,
-                "status": 500,
-            },
-            separators=(",", ":"),
-        )
+        "unhandled HTTP exception",
+        extra={
+            "event": "http.unhandled_error",
+            "request_id": request_id,
+            "error_type": type(error).__name__,
+            "method": request.method,
+            "path": request.url.path,
+            "status": 500,
+        },
     )
     return _problem(
         request,

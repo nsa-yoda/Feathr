@@ -19,7 +19,10 @@ def test_app_owns_injected_settings() -> None:
 
 
 @pytest.mark.unit
-def test_invalid_environment_prevents_app_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_invalid_environment_prevents_app_startup(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     from event_platform.core.settings import SettingsStartupError
 
     monkeypatch.setenv("EVENT_PLATFORM_LOG_LEVEL", "LOUD")
@@ -27,6 +30,10 @@ def test_invalid_environment_prevents_app_startup(monkeypatch: pytest.MonkeyPatc
     with pytest.raises(SettingsStartupError):
         with TestClient(create_app()) as client:
             client.get("/health/live")
+
+    assert any(
+        getattr(record, "event", None) == "service.startup_failed" for record in caplog.records
+    )
 
 
 @pytest.mark.unit

@@ -246,3 +246,11 @@ This entry records the preceding `$speckit-plan` turn at the time of logging; it
 - Suggestions: add regression coverage for the custom `--pass-with-no-tests` exit behavior, caller-ID rejection on successful responses, typed application-state access, and port-collision-resistant process smoke setup; remove redundant `URLError` handling.
 - Positive observations: Feature 001 remains small and readable; request IDs are server-owned; problem responses redact query/body/exception data; settings validation is constrained and sanitized; import-safety and process lifecycle tests are meaningful and bounded; all specialized agents found no need for broad abstraction or scope expansion.
 - Aggregate verdict: CHANGES REQUIRED. Fix the two blockers first, then address the important contract/workflow findings and rerun the comprehensive review.
+
+## 2026-09-18 17:39:41 EDT — Review remediation R001-R005
+
+- Fixed R001 by adding idempotent structured JSON logging in `src/event_platform/core/logging.py`, configuring service/Uvicorn handlers from the validated log level, emitting structured `service.startup`, `service.startup_failed`, and `service.shutdown` events, and recording structured unexpected HTTP errors with request/method/path context. Added lifecycle and startup-failure assertions.
+- Fixed R002 by declaring shared `application/problem+json` responses for 404, 405, 422, and 500 on `/health/live`, and expanded the OpenAPI test to cover every declaration.
+- Fixed R003 by updating `docs/requirements-traceability.md` and `docs/ai-workflow-log.md` from 17 to the final 21 passing unit tests; reconciled Feature 001 spec/plan/checklist documentation with the newly implemented foundation logging scope.
+- Fixed R004 by adding a subprocess regression test proving `--pass-with-no-tests` returns zero only for an empty selection and preserves nonzero status for a failing test. Fixed R005 by reserving a listening socket and passing its file descriptor to Uvicorn, removing the free-port race; simplified the transient polling exception tuple.
+- Validation passed: focused remediation tests (13 passed), full unit suite (21 passed, 2 existing upstream deprecation warnings), `make format-check`, `make lint`, `make typecheck`, `make test-unit`, `make test-integration` (empty, exit 0), `make test-failure` (empty, exit 0), and scoped `git diff --check`.

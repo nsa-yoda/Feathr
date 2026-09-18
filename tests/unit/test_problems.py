@@ -88,4 +88,5 @@ def test_openapi_declares_problem_media_type_for_health() -> None:
         document = client.get("/openapi.json").json()
 
     responses = document["paths"]["/health/live"]["get"]["responses"]
-    assert "application/problem+json" in responses["500"]["content"]
+    for status in ("404", "405", "422", "500"):
+        assert "application/problem+json" in responses[status]["content"]

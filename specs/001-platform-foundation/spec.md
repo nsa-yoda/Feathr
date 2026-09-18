@@ -90,4 +90,4 @@ As an API caller, I receive a predictable machine-readable problem response for 
 - The first feature establishes boundaries and conventions; later features implement event behavior and external integrations in manifest order.
 - The base service has no required external dependency credentials. Integration-specific settings become required when those integrations are introduced.
 - The governing handoff, constitution, and accepted ADRs supply the technical constraints for the implementation plan.
-- Detailed readiness, component health, degraded dependency states, structured runtime logging, metrics, and rate limiting are delivered by their dedicated later features; this feature exposes minimal liveness and safe error responses only.
+- Detailed readiness, component health, degraded dependency states, metrics, and rate limiting are delivered by their dedicated later features. This feature also configures structured JSON logging for foundation lifecycle and HTTP error events while exposing minimal liveness and safe error responses.

@@ -1,8 +1,13 @@
 """Base application startup, liveness, and shutdown behavior."""
 
+import json
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
+from event_platform.core.logging import JsonLogFormatter
+from event_platform.core.settings import ServiceSettings
 from event_platform.main import create_app
 
 
@@ -27,3 +32,19 @@ def test_base_app_serves_liveness_and_api_description() -> None:
 def test_base_app_lifespan_exits_cleanly() -> None:
     with TestClient(create_app()) as client:
         assert client.get("/openapi.json").status_code == 200
+
+
+def test_lifespan_emits_structured_state_events(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger="event_platform.lifecycle"):
+        with TestClient(create_app(ServiceSettings(env="test", log_level="INFO"))):
+            pass
+
+    lifecycle_records = [
+        record for record in caplog.records if record.name == "event_platform.lifecycle"
+    ]
+    events = {record.event for record in lifecycle_records}
+    assert events == {"service.startup", "service.shutdown"}
+    for record in lifecycle_records:
+        structured = json.loads(JsonLogFormatter().format(record))
+        assert structured["event"] in events
+        assert structured["logger"] == "event_platform.lifecycle"

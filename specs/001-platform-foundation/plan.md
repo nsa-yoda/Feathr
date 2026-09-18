@@ -36,7 +36,7 @@ Establish a Python service skeleton that starts and stops cleanly, exposes OpenA
 |---|---|---|
 | I, III: canonical versus derived stores; avoid false guarantees | Feature 001 adds no storage or event processing; package boundaries reserve the locked Mongo/ES/Redis roles. | PASS |
 | II, V, IX: explicit queue semantics, rate limiting, and spec-first delivery | No ingestion route exists in this feature. Queue and rate-limit packages remain boundaries for later specified features; this spec and plan precede implementation. | PASS |
-| IV, VII: failures and observable operations | Central safe problems and startup errors are specified; full metrics/component health remain in Feature 015. The failure-test command is category plumbing only until later dependency features add failure cases. | PASS |
+| IV, VII: failures and observable operations | Central safe problems, structured foundation lifecycle/error logs, and startup errors are specified; full metrics/component health remain in Feature 015. The failure-test command is category plumbing only until later dependency features add failure cases. | PASS |
 | V: security and privacy | No credentials in defaults, startup diagnostics, or HTTP problems; no request-body logging; no forwarded-IP handling in this feature. | PASS |
 | VI: async and lifecycle ownership | App factory/lifespan owns future clients; foundation startup creates none; async routes avoid blocking I/O. | PASS |
 | VIII: meaningful tests | Settings, lifespan, process start/stop, successful/error request IDs, error mapping, and import effects have focused unit/smoke coverage; real-service tests start with integration features. | PASS |
@@ -105,7 +105,7 @@ See [data-model.md](data-model.md) for configuration, request context, problem r
 
 ## Post-Design Constitution Recheck
 
-**PASS.** The design adds only typed in-process state and one liveness route. It creates no dependency client, background worker, durable-acceptance claim, alternate source of truth, or new infrastructure. Error details remain safe, request IDs are returned to every HTTP response, and focused tests cover process startup/shutdown, invalid settings, import safety, and problem mapping. The integration/failure command entrypoints do not imply that real dependency coverage exists in this feature. Feature 015 retains ownership of readiness, component health, JSON runtime logging, and metrics.
+**PASS.** The design adds only typed in-process state and one liveness route. It creates no dependency client, background worker, durable-acceptance claim, alternate source of truth, or new infrastructure. Error details remain safe, request IDs are returned to every HTTP response, structured foundation lifecycle/error logs are emitted, and focused tests cover process startup/shutdown, invalid settings, import safety, and problem mapping. The integration/failure command entrypoints do not imply that real dependency coverage exists in this feature. Feature 015 retains ownership of readiness, component health, and metrics.
 
 ## Complexity Tracking
 

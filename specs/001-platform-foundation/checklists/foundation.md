@@ -35,8 +35,8 @@
 
 ## Security and Observability Boundaries
 
-- [x] CHK016 Are secret and invalid setting values excluded from startup diagnostics and HTTP problems, with broader runtime logging explicitly deferred? [Security, Spec §FR-003, §FR-006, §SC-002]
-- [x] CHK017 Is a correlation identifier required for rejected requests while the broader logging and metrics obligations remain assigned to later features? [Observability, Spec §FR-005, Assumptions]
+- [x] CHK016 Are secret and invalid setting values excluded from startup diagnostics and HTTP problems, with structured foundation lifecycle/error logging configured and broader dependency-operation logging deferred? [Security, Spec §FR-003, §FR-006, §SC-002]
+- [x] CHK017 Is a correlation identifier required for rejected requests while metrics and dependency-operation observability remain assigned to later features? [Observability, Spec §FR-005, Assumptions]
 - [x] CHK018 Are the foundation's deferred rate-limit, readiness, and dependency-degradation requirements identified as later-feature work rather than silently omitted? [Dependency, Spec §Assumptions]
 
 ## Test and Dependency Readiness
