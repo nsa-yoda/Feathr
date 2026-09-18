@@ -232,3 +232,7 @@ This entry records the preceding `$speckit-plan` turn at the time of logging; it
 - Staff review completed for Feature 001 over implementation range `f59e88e..0f54c0d`; report written to `specs/001-platform-foundation/reviews/review-20260918-171430.md`. The staff extension prerequisite script was absent, so the project prerequisite script resolved the feature. No review hooks were registered in `.specify/extensions.yml`.
 - Review verdict: CHANGES REQUIRED. One blocker: constitution/handoff-mandated structured runtime logging and shutdown-state emission are not implemented. Warnings: generated OpenAPI under-declares standard problem responses, and traceability/AI workflow evidence still says 17 tests while the current suite passes 19. Suggestions cover regression coverage for the custom empty-suite option and process-smoke port collision resistance.
 - Review checks passed: `make format-check`, `make lint`, `make typecheck`, `make test-unit` (19 passed), `make test-integration` (empty, exit 0), `make test-failure` (empty, exit 0), and `git diff --check f59e88e..HEAD`.
+
+## 2026-09-18 17:15:21 EDT — Staff review artifact commit
+
+- Committed the read-only staff review report and its review log entry as `9ce8842` (`docs: record Feature 001 staff review`). No implementation files were changed.
