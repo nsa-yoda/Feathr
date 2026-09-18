@@ -1,0 +1,103 @@
+version: 1
+workflow: "specify -> clarify -> plan -> checklist -> tasks -> analyze -> implement -> converge -> staff-review -> review"
+features:
+  - id: 001
+    slug: platform-foundation
+    depends_on: []
+    summary: "Establish package boundaries, configuration, dependency/lifecycle conventions, quality tooling, base FastAPI app, and error model."
+  - id: 002
+    slug: event-domain-contract
+    depends_on: [001]
+    summary: "Define event input/persistence/response contracts, validation limits, timestamps, URLs, metadata bounds, IDs, and payload hashing."
+  - id: 003
+    slug: mongodb-store-indexes
+    depends_on: [001, 002]
+    summary: "Implement async Mongo repository, collection bootstrap, query-shaped indexes, canonical persistence, and replica-set assumptions."
+  - id: 004
+    slug: inprocess-sqs-queue
+    depends_on: [001, 002]
+    summary: "Implement the bounded SQS-style in-process queue with visibility, receipt handles, long polling, redelivery, and queue metrics."
+  - id: 005
+    slug: ingestion-api
+    depends_on: [002, 004]
+    summary: "Implement POST /events admission, 202 semantics, queue saturation behavior, request IDs, and OpenAPI contract."
+  - id: 006
+    slug: persistence-worker-idempotency
+    depends_on: [003, 004, 005]
+    summary: "Implement Mongo persistence worker, ack boundary, duplicate equivalence/conflict rules, concurrency, and safe redelivery."
+  - id: 007
+    slug: retry-backoff-dlq
+    depends_on: [004, 006]
+    summary: "Implement transient/permanent classification, exponential backoff+jitter, visibility changes, max attempts, and simulated DLQ."
+  - id: 008
+    slug: event-query-api
+    depends_on: [003]
+    summary: "Implement GET /events filtering, keyset pagination, cursors, limits, and problem responses."
+  - id: 009
+    slug: mongodb-analytics
+    depends_on: [003]
+    summary: "Implement GET /events/stats with dateTrunc aggregation, bounded ranges, and hour/day/week grouping."
+  - id: 010
+    slug: search-projection-changestream
+    depends_on: [003]
+    summary: "Implement Mongo Change Stream projection, resume checkpointing after ES success, lag/error behavior, and lifecycle."
+  - id: 011
+    slug: elasticsearch-mapping-search
+    depends_on: [002, 010]
+    summary: "Implement versioned mapping, flattened metadata + metadata_text projection, stable alias, safe search, and search_after pagination."
+  - id: 012
+    slug: elasticsearch-online-rebuild
+    depends_on: [010, 011]
+    summary: "Implement Mongo-backed rebuild lease/state, new generation build, live dual-write, verification, alias swap, rollback retention, and logs."
+  - id: 013
+    slug: realtime-stats-cache
+    depends_on: [003, 009]
+    summary: "Implement Redis cache-aside realtime statistics, short configurable TTL, cache headers, and Mongo bypass."
+  - id: 014
+    slug: rate-limiting
+    depends_on: [001]
+    summary: "Implement mandatory Redis atomic token bucket, route classes, client identity rules, 429 headers, and conservative local fallback."
+  - id: 015
+    slug: observability-health
+    depends_on: [001, 003, 004, 010, 013, 014]
+    summary: "Implement structured logs, metrics, request IDs, liveness/readiness/component health, degraded-state semantics, and safe cardinality."
+  - id: 016
+    slug: graceful-lifecycle
+    depends_on: [004, 006, 010, 015]
+    summary: "Implement deterministic startup/shutdown, worker supervision, drain/grace period, dependency client ownership, and failure reporting."
+  - id: 017
+    slug: security-hardening
+    depends_on: [002, 005, 008, 011, 014, 015]
+    summary: "Implement body/query/cursor limits, CORS, trusted-proxy handling, secret/config hygiene, safe logging, and container security requirements."
+  - id: 018
+    slug: unit-test-coverage
+    depends_on: [001, 002, 004, 006, 007, 008, 009, 011, 013, 014]
+    summary: "Close unit-level semantic coverage gaps with deterministic clock/retry/queue/idempotency/query/cache/rate-limit tests."
+  - id: 019
+    slug: integration-test-lifecycles
+    depends_on: [003, 005, 006, 008, 009, 010, 011, 013]
+    summary: "Implement real-dependency lifecycle tests for ingest->Mongo, ingest->ES search, analytics, and cache behavior."
+  - id: 020
+    slug: failure-injection-tests
+    depends_on: [007, 010, 013, 014, 015, 016]
+    summary: "Prove Mongo/ES/Redis/worker/queue failure behavior and recovery/degradation semantics."
+  - id: 021
+    slug: docker-compose-runtime
+    depends_on: [003, 010, 011, 013, 016, 017]
+    summary: "Deliver one-command Compose stack with Mongo replica set init, ES, Redis, app health checks, and reproducible service startup."
+  - id: 022
+    slug: postman-reviewer-suite
+    depends_on: [005, 008, 009, 011, 013, 014, 015, 021]
+    summary: "Deliver Postman collection/environment with assertions, polling, negative cases, and a sequential reviewer demo run."
+  - id: 023
+    slug: demo-operations-ui
+    depends_on: [005, 008, 009, 011, 013, 015, 021]
+    summary: "Deliver a compact React/TypeScript reviewer console in Compose for generator, events, search, analytics, realtime stats, and health/status."
+  - id: 024
+    slug: developer-experience-ci
+    depends_on: [018, 019, 020, 021]
+    summary: "Add make/task commands, CI quality gates, Compose smoke, coverage artifacts, lockfile checks, and reproducible reviewer commands."
+  - id: 025
+    slug: final-documentation-ai-workflow
+    depends_on: [001, 002, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 021, 022, 023, 024]
+    summary: "Reconcile README/ARCHITECTURE, SQS notes, index/cache rationale, failure/scaling sections, traceability, and factual AI workflow evidence."
