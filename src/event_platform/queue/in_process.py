@@ -7,7 +7,27 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import Literal
 from uuid import uuid4
+
+DLQClassification = Literal["transient", "permanent", "unknown"]
+DLQReasonCode = Literal[
+    "mongo_dependency",
+    "invalid_envelope",
+    "event_conflict",
+    "unknown_failure",
+    "max_receive_count",
+]
+_ALLOWED_CLASSIFICATIONS = frozenset({"transient", "permanent", "unknown"})
+_ALLOWED_REASON_CODES = frozenset(
+    {
+        "mongo_dependency",
+        "invalid_envelope",
+        "event_conflict",
+        "unknown_failure",
+        "max_receive_count",
+    }
+)
 
 
 class QueueClosed(RuntimeError):
@@ -32,12 +52,23 @@ class Delivery:
 
 
 @dataclass(frozen=True, slots=True)
+class DeadLetter:
+    """A volatile DLQ copy with bounded safe disposition diagnostics."""
+
+    delivery: Delivery
+    classification: DLQClassification
+    reason_code: DLQReasonCode
+    attempts: int
+
+
+@dataclass(frozen=True, slots=True)
 class QueueStats:
     capacity: int
     depth: int
     visible: int
     in_flight: int
     dlq_depth: int
+    oldest_age: float = 0.0
 
 
 @dataclass(slots=True)
@@ -81,10 +112,12 @@ class InProcessQueue:
         self._clock = clock
         self._condition = asyncio.Condition()
         self._messages: list[_Message] = []
-        self._dlq: list[Delivery] = []
+        self._dlq: list[DeadLetter] = []
         self._closed = False
 
     async def send(self, body: Mapping[str, object], *, message_id: str | None = None) -> str:
+        if message_id is not None and not _is_safe_identifier(message_id):
+            raise ValueError("message_id must be 1-256 printable ASCII characters")
         deadline = self._clock() + self._send_timeout
         async with self._condition:
             while len(self._messages) >= self._capacity:
@@ -148,6 +181,35 @@ class InProcessQueue:
             message.visibility_deadline = self._clock() + timeout
             self._condition.notify_all()
 
+    async def dead_letter(
+        self,
+        message_id: str,
+        receipt_handle: str,
+        *,
+        classification: DLQClassification,
+        reason_code: DLQReasonCode,
+    ) -> None:
+        """Move one current delivery to the volatile DLQ with safe diagnostics."""
+
+        if classification not in _ALLOWED_CLASSIFICATIONS:
+            raise ValueError("classification is not a supported safe value")
+        if reason_code not in _ALLOWED_REASON_CODES:
+            raise ValueError("reason_code is not a supported safe value")
+        async with self._condition:
+            message = self._current(message_id, receipt_handle)
+            delivery = Delivery(
+                message.message_id,
+                message.body,
+                message.receipt_handle or "",
+                message.receive_count,
+                message.enqueued_at,
+            )
+            self._dlq.append(
+                DeadLetter(delivery, classification, reason_code, message.receive_count)
+            )
+            self._messages.remove(message)
+            self._condition.notify_all()
+
     async def redrive(self, *, max_receive_count: int) -> int:
         if max_receive_count < 1:
             raise ValueError("max_receive_count must be positive")
@@ -159,16 +221,17 @@ class InProcessQueue:
                 if message.receive_count >= max_receive_count and message.visibility_deadline <= now
             ]
             for message in moved:
-                self._messages.remove(message)
-                self._dlq.append(
-                    Delivery(
-                        message.message_id,
-                        message.body,
-                        message.receipt_handle or "",
-                        message.receive_count,
-                        message.enqueued_at,
-                    )
+                delivery = Delivery(
+                    message.message_id,
+                    message.body,
+                    message.receipt_handle or "",
+                    message.receive_count,
+                    message.enqueued_at,
                 )
+                self._dlq.append(
+                    DeadLetter(delivery, "unknown", "max_receive_count", message.receive_count)
+                )
+                self._messages.remove(message)
             self._condition.notify_all()
             return len(moved)
 
@@ -176,17 +239,34 @@ class InProcessQueue:
         async with self._condition:
             now = self._clock()
             visible = sum(message.visibility_deadline <= now for message in self._messages)
+            oldest_age = max(
+                (max(0.0, now - message.enqueued_at) for message in self._messages),
+                default=0.0,
+            )
             return QueueStats(
                 self._capacity,
                 len(self._messages),
                 visible,
                 len(self._messages) - visible,
                 len(self._dlq),
+                oldest_age,
             )
 
     async def dlq(self) -> tuple[Delivery, ...]:
         async with self._condition:
+            return tuple(entry.delivery for entry in self._dlq)
+
+    async def dlq_entries(self) -> tuple[DeadLetter, ...]:
+        """Return DLQ entries including safe classification diagnostics."""
+
+        async with self._condition:
             return tuple(self._dlq)
+
+    @property
+    def closed(self) -> bool:
+        """Whether the queue has stopped accepting receives and sends."""
+
+        return self._closed
 
     async def wake(self) -> None:
         """Wake timed waiters after an injected clock advances."""
@@ -208,3 +288,7 @@ class InProcessQueue:
             if message.message_id == message_id and message.receipt_handle == receipt_handle:
                 return message
         raise ReceiptHandleError("receipt handle is stale or unknown")
+
+
+def _is_safe_identifier(value: str) -> bool:
+    return 0 < len(value) <= 256 and all(char.isascii() and char.isprintable() for char in value)

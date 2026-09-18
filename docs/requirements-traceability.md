@@ -5,8 +5,8 @@ This file starts as a planning matrix. Codex must update the final two columns w
 | Requirement | Feature(s) | Planned evidence | Implementation evidence | Test evidence |
 |---|---|---|---|---|
 | POST /events validates and enqueues asynchronously | 002, 004, 005 | API spec + queue contract | TBD | TBD |
-| Background worker persists Mongo | 005, 006 | worker/repository | `src/event_platform/worker/persistence.py` `PersistenceWorker` acknowledges only after `MongoEventStore.insert` or same-hash verification; Feature 003 provides the async repository primitives | `tests/unit/test_persistence_worker.py` (5 ack, duplicate, conflict, failure, and concurrency tests); `tests/integration/test_persistence_worker_integration.py` (real MongoDB 8 replica-set pass) |
-| Retry with backoff | 007 | retry policy | TBD | TBD |
+| Background worker persists Mongo | 005, 006, 007 | worker/repository | `src/event_platform/worker/persistence.py` `PersistenceWorker` acknowledges only after `MongoEventStore.insert` or same-hash verification, and Feature 007 schedules classified failures or targeted DLQ disposition; Feature 003 provides the async repository primitives | `tests/unit/test_persistence_worker.py` and `tests/unit/test_retry_backoff_dlq.py`; `tests/integration/test_persistence_worker_integration.py` (real MongoDB 8 replica-set pass) |
+| Retry with backoff | 007 | retry policy | `src/event_platform/worker/persistence.py` `RetryPolicy`, `classify_failure`, visibility-based `_dispose_failure`, and structured `worker.retry_scheduled` logs | `tests/unit/test_retry_backoff_dlq.py` (transient recovery/exhaustion, bounded jitter, no capacity-blocking sleep, policy validation, and lookup-failure disposition) |
 | GET /events filters | 009 | query service | TBD | TBD |
 | GET /events/stats aggregation | 010 | Mongo pipeline | TBD | TBD |
 | GET /events/search metadata full-text | 011, 012 | ES projection/search | TBD | TBD |
@@ -15,10 +15,10 @@ This file starts as a planning matrix. Codex must update the final two columns w
 | Mongo canonical repository | 003 | async insert/fetch/query/aggregate boundary | `src/event_platform/storage/mongo.py` `MongoEventStore`, typed `EventQuery`, BSON mapping, and safe errors | `tests/unit/test_mongo_store.py` (9 tests); `tests/integration/test_mongo_store_integration.py` (real replica-set pass) |
 | ES mapping/analyzers | 012 | versioned mapping | TBD | TBD |
 | ARCHITECTURE.md standalone | 025 | root architecture | `ARCHITECTURE.md` | doc review |
-| Failure modes | 005, 011, 014, 016, 021, 025 | failure docs/tests | TBD | TBD |
+| Failure modes | 005, 007, 011, 014, 016, 021, 025 | failure docs/tests | `docs/architecture/failure-model.md`, `src/event_platform/worker/persistence.py`, and `src/event_platform/queue/in_process.py` define transient/permanent/unknown classification, bounded visibility retry, safe targeted DLQ, and no-false-ack semantics | `tests/unit/test_retry_backoff_dlq.py` and `tests/unit/test_in_process_queue.py` cover recovery, exhaustion, permanent disposition, diagnostics, and source preservation |
 | Scaling considerations | 025 | architecture | `ARCHITECTURE.md` | doc review |
-| What changes in production | 004, 013, 025 | SQS/rebuild/scaling docs | TBD | doc review |
-| Unit tests | all + 019 | per-feature tests | `tests/unit/` and `pyproject.toml` markers | Full unit suite: 78 passed with two existing upstream dependency deprecation warnings; Feature 006 focused worker tests: 5 passed |
+| What changes in production | 004, 007, 013, 025 | SQS/rebuild/scaling docs | `docs/architecture/queue-semantics.md` and `docs/operations/sqs-migration.md` document volatile local retry/DLQ limits and SQS redrive evolution | doc review plus Feature 007 review |
+| Unit tests | all + 019 | per-feature tests | `tests/unit/` and `pyproject.toml` markers | Feature 007 focused queue/worker regression set: 36 passed; full unit suite: 103 passed with two existing upstream dependency deprecation warnings |
 | 2+ integration lifecycles | 020 | real-service tests | TBD | TBD |
 | Clear module boundaries | 001 | package architecture | `src/event_platform/` package boundaries and `src/event_platform/main.py` app factory | `tests/unit/test_import_safety.py`; source review |
 | Event input validation and canonical hashing | 002 | `specs/002-event-domain-contract/spec.md`, `contracts/domain.md` | `src/event_platform/domain/events.py` (`EventInput`, `CanonicalEvent`, `canonical_payload`, `payload_hash`) | `tests/unit/test_event_domain.py` (27 tests; all boundaries, redaction, immutability, and hash stability) |
@@ -30,8 +30,8 @@ This file starts as a planning matrix. Codex must update the final two columns w
 | AI in My Workflow | 025 | maintained workflow log | TBD | doc review |
 | Dockerfile/docker-compose bonus | 022 | full stack | TBD | smoke |
 | Rate limiting bonus (mandatory here) | 015 | distributed + fallback limiter | TBD | TBD |
-| Event deduplication bonus | 006 | unique ID/payload hash | `src/event_platform/worker/persistence.py` verifies same-hash duplicates, leaves conflicting deliveries unacknowledged unless an explicit disposition hook accepts them, and exposes immutable worker metrics | `tests/unit/test_persistence_worker.py`; `tests/integration/test_persistence_worker_integration.py` confirms duplicate delivery does not create a second Mongo document |
-| DLQ simulation bonus | 007 | local redrive | TBD | TBD |
+| Event deduplication bonus | 006, 007 | unique ID/payload hash | `src/event_platform/worker/persistence.py` verifies same-hash duplicates, preserves conflicts, and applies bounded retry/DLQ policy without overwrite | `tests/unit/test_persistence_worker.py`, `tests/unit/test_retry_backoff_dlq.py`; `tests/integration/test_persistence_worker_integration.py` confirms duplicate delivery does not create a second Mongo document |
+| DLQ simulation bonus | 007 | local redrive | `src/event_platform/queue/in_process.py` targeted `dead_letter`, safe `DeadLetter` diagnostics, `redrive`, and `QueueStats.oldest_age` | `tests/unit/test_retry_backoff_dlq.py` and `tests/unit/test_in_process_queue.py` cover permanent/exhausted disposition, source removal, failed-DLQ preservation, allowlisted diagnostics, and queue age |
 | AWS SQS drop-in notes | 004, 025 | port + design notes | TBD | doc review |
 | Reviewer UI value-add | 024 | Compose UI | TBD | browser/smoke |
 | Postman reviewer suite value-add | 023 | collection/environment | TBD | Newman/Postman run |

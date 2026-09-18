@@ -11,7 +11,7 @@ import pytest
 from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.queue import InProcessQueue
 from event_platform.storage.mongo import EventAlreadyExists, MongoDependencyError
-from event_platform.worker import PersistenceWorker
+from event_platform.worker import PersistenceWorker, RetryPolicy
 
 pytestmark = pytest.mark.unit
 
@@ -113,13 +113,20 @@ async def test_conflicting_duplicate_uses_disposition_hook_and_never_overwrites(
 @pytest.mark.asyncio
 async def test_failure_before_ack_is_safe_on_redelivery() -> None:
     value = event()
-    queue = InProcessQueue(capacity=1, visibility_timeout=0)
+    clock_value = [100.0]
+    queue = InProcessQueue(capacity=1, visibility_timeout=0, clock=lambda: clock_value[0])
     await queue.send(value.model_dump(mode="json"), message_id=str(value.event_id))
     stored = FakeStore()
     stored.fail_once = True
-    worker = PersistenceWorker(queue, stored)  # type: ignore[arg-type]
+    worker = PersistenceWorker(
+        queue,
+        stored,
+        retry_policy=RetryPolicy(base_delay=1, max_delay=1, jitter_ratio=0),
+    )  # type: ignore[arg-type]
 
     assert not await worker.process_once()
+    clock_value[0] += 1
+    await queue.wake()
     assert await worker.process_once()
     assert worker.metrics.processing_errors == 1
     assert worker.metrics.inserted == 1

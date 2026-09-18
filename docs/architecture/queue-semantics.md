@@ -16,13 +16,17 @@ If the worker does not delete before the visibility deadline, the message become
 
 Worker classifies failure, calculates backoff+jitter, and changes the message's visibility deadline. It must release worker execution capacity rather than sleeping for the backoff duration.
 
+Feature 007 treats the first receive as attempt 1. The default maximum receive count is 5. Transient dependency failures use an exponential delay with a configurable base and cap plus bounded jitter; unknown failures use the same bounded budget. Permanent validation failures and immutable event conflicts go directly to the simulated DLQ. A targeted DLQ operation removes only the current source delivery after the DLQ copy and safe diagnostic fields are accepted. A failed DLQ operation leaves the source message available.
+
 ## DLQ
 
 When policy determines no more receives are allowed, create one DLQ entry containing original envelope plus safe diagnostics, then remove source message. If DLQ insertion itself can fail in-memory, disposition logic must avoid silently deleting the source.
 
+Queue statistics include visible, in-flight, total depth, DLQ depth, and oldest queued age. The age is diagnostic and uses the queue's monotonic clock; it is not a durable business timestamp.
+
 ## Shutdown
 
-Queue stops new sends/receives once closing begins. In-flight worker tasks receive the normal grace period. Remaining visible/inflight counts are logged before process exit. Since memory disappears, this is diagnostic rather than durable drain.
+Queue stops new sends/receives once closing begins. In-flight worker tasks receive the normal grace period from the lifecycle supervisor (Feature 016). That supervisor logs remaining visible/inflight counts before process exit. Since memory disappears, this is diagnostic rather than durable drain.
 
 ## SQS compatibility note
 

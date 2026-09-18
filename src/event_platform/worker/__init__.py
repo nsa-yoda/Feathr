@@ -1,5 +1,10 @@
 """Background worker boundaries."""
 
-from event_platform.worker.persistence import PersistenceWorker, WorkerMetrics
+from event_platform.worker.persistence import (
+    PersistenceWorker,
+    RetryPolicy,
+    WorkerMetrics,
+    classify_failure,
+)
 
-__all__ = ["PersistenceWorker", "WorkerMetrics"]
+__all__ = ["PersistenceWorker", "RetryPolicy", "WorkerMetrics", "classify_failure"]

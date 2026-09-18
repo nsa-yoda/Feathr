@@ -48,6 +48,12 @@ _EXTRA_FIELDS = (
     "client_addr",
     "request_line",
     "status_code",
+    "message_id",
+    "event_id",
+    "attempt",
+    "reason_code",
+    "classification",
+    "delay_seconds",
 )
 
 

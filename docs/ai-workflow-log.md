@@ -123,3 +123,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** keep this worker independent of HTTP lifecycle wiring until the later worker-runtime feature, while exposing a reusable `run()` loop for bounded consumers.
 - **Artifacts/code affected:** `specs/006-persistence-worker-idempotency/`, `src/event_platform/worker/`, `tests/unit/test_persistence_worker.py`, `tests/integration/test_persistence_worker_integration.py`, traceability, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** focused worker tests pass 5/5; full unit suite passes 78 tests with two existing upstream dependency warnings; real MongoDB 8 replica-set integration passes 1/1; Ruff format/lint, strict mypy, and empty-safe failure/integration marker suites pass.
+
+### 2026-09-18 — Retry, backoff, and simulated DLQ implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** make every Feature 006 persistence failure explicit through bounded visibility retry, permanent/unknown classification, and a volatile simulated DLQ.
+- **AI proposal/contribution:** added `RetryPolicy` with injectable jitter, stable safe reason codes, targeted queue dead-lettering, oldest-age statistics, and immutable retry/DLQ metrics.
+- **What was useful:** deterministic clocks and injected jitter made exponential-delay bounds and no-sleep worker behavior directly testable; queue tests caught the need to preserve the existing `dlq()` delivery view while adding diagnostic entries.
+- **Pushback/correction:** an initial default retry delay changed a Feature 006 immediate-redelivery test; the test was corrected to advance an injected clock, preserving the production backoff contract without arbitrary sleeps. Raw exception text was deliberately excluded from DLQ diagnostics.
+- **Human decision and rationale:** attempt 1 is the first receive, default maximum receives is 5, permanent validation/conflict failures bypass retry, and unknown failures receive only bounded retry before DLQ.
+- **Artifacts/code affected:** `specs/007-retry-backoff-dlq/`, `src/event_platform/queue/`, `src/event_platform/worker/`, queue/worker tests, queue/failure architecture docs, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** initial focused Feature 007 and regression pass was 18 tests; after review remediation the focused queue/worker set passes 36 tests. The full unit suite passes 103 tests with two existing upstream dependency warnings; integration/failure marker suites are empty-safe; final review evidence is recorded in the Feature 007 review report before commit.

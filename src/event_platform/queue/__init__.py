@@ -1,7 +1,10 @@
 """Queue ports and local implementations."""
 
 from event_platform.queue.in_process import (
+    DeadLetter,
     Delivery,
+    DLQClassification,
+    DLQReasonCode,
     InProcessQueue,
     QueueClosed,
     QueueFull,
@@ -10,7 +13,10 @@ from event_platform.queue.in_process import (
 )
 
 __all__ = [
+    "DLQClassification",
+    "DLQReasonCode",
     "Delivery",
+    "DeadLetter",
     "InProcessQueue",
     "QueueClosed",
     "QueueFull",

@@ -114,3 +114,50 @@ async def test_redrive_moves_expired_repeated_delivery_to_dlq() -> None:
     assert await queue.redrive(max_receive_count=2) == 1
     assert (await queue.stats()).dlq_depth == 1
     assert (await queue.dlq())[0].message_id == first.message_id
+
+
+@pytest.mark.asyncio
+async def test_targeted_dead_letter_preserves_safe_diagnostics_and_age() -> None:
+    clock = ManualClock()
+    queue = InProcessQueue(capacity=1, clock=clock)
+    await queue.send({"value": "poison"}, message_id="poison-1")
+    clock.advance(3)
+    delivery = await queue.receive()
+    stats = await queue.stats()
+    assert stats.oldest_age == 3
+    await queue.dead_letter(
+        delivery.message_id,
+        delivery.receipt_handle,
+        classification="permanent",
+        reason_code="invalid_envelope",
+    )
+    entry = (await queue.dlq_entries())[0]
+    assert entry.delivery.message_id == "poison-1"
+    assert entry.classification == "permanent"
+    assert entry.reason_code == "invalid_envelope"
+    assert entry.attempts == 1
+    assert (await queue.stats()).depth == 0
+
+
+@pytest.mark.asyncio
+async def test_targeted_dead_letter_rejects_unsafe_diagnostic_values() -> None:
+    queue = InProcessQueue(capacity=1)
+    await queue.send({"value": "poison"}, message_id="poison-unsafe")
+    delivery = await queue.receive()
+
+    with pytest.raises(ValueError):
+        await queue.dead_letter(
+            delivery.message_id,
+            delivery.receipt_handle,
+            classification="raw exception text",
+            reason_code="password=secret",
+        )
+    assert (await queue.stats()).depth == 1
+    assert (await queue.stats()).dlq_depth == 0
+
+
+@pytest.mark.asyncio
+async def test_send_rejects_control_character_message_ids() -> None:
+    queue = InProcessQueue(capacity=1)
+    with pytest.raises(ValueError):
+        await queue.send({"value": "poison"}, message_id="bad\nmessage")
