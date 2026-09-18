@@ -112,3 +112,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** use the queue body as a JSON canonical envelope and close the queue during application shutdown so ownership is explicit within process lifetime.
 - **Artifacts/code affected:** `specs/005-ingestion-api/`, `src/event_platform/api/routes/events.py`, `src/event_platform/core/settings.py`, `src/event_platform/main.py`, and `tests/unit/test_ingestion_api.py`.
 - **Validation/review performed:** focused ingestion tests pass 5/5; full unit suite passes 73 tests with two existing dependency warnings; Ruff and strict mypy pass; integration/failure marker suites are empty-safe.
+
+### 2026-09-18 — Persistence worker and idempotency implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** consume Feature 005 canonical envelopes, persist them through the Feature 003 Mongo boundary, and acknowledge only after durable insert or verified same-hash duplicate handling.
+- **AI proposal/contribution:** added a bounded-concurrency async worker with immutable metrics, explicit decode/dependency/conflict classifications, a conflict disposition hook, and crash-safe redelivery semantics.
+- **What was useful:** fake-store tests made the ack boundary, same-hash verification, conflicting event behavior, and concurrency limit deterministic; the temporary MongoDB 8 replica-set run verified the duplicate path against the real async repository.
+- **Pushback/correction:** no overwrite or implicit conflict resolution was introduced. Conflicting event IDs remain unacknowledged unless a later policy hook explicitly accepts the disposition, and DLQ policy remains Feature 007.
+- **Human decision and rationale:** keep this worker independent of HTTP lifecycle wiring until the later worker-runtime feature, while exposing a reusable `run()` loop for bounded consumers.
+- **Artifacts/code affected:** `specs/006-persistence-worker-idempotency/`, `src/event_platform/worker/`, `tests/unit/test_persistence_worker.py`, `tests/integration/test_persistence_worker_integration.py`, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** focused worker tests pass 5/5; full unit suite passes 78 tests with two existing upstream dependency warnings; real MongoDB 8 replica-set integration passes 1/1; Ruff format/lint, strict mypy, and empty-safe failure/integration marker suites pass.

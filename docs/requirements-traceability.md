@@ -5,7 +5,7 @@ This file starts as a planning matrix. Codex must update the final two columns w
 | Requirement | Feature(s) | Planned evidence | Implementation evidence | Test evidence |
 |---|---|---|---|---|
 | POST /events validates and enqueues asynchronously | 002, 004, 005 | API spec + queue contract | TBD | TBD |
-| Background worker persists Mongo | 005, 006 | worker/repository | TBD; Feature 003 provides `src/event_platform/storage/mongo.py` primitives | Feature 003 unit mapping/error coverage; real-Mongo integration is environment-gated |
+| Background worker persists Mongo | 005, 006 | worker/repository | `src/event_platform/worker/persistence.py` `PersistenceWorker` acknowledges only after `MongoEventStore.insert` or same-hash verification; Feature 003 provides the async repository primitives | `tests/unit/test_persistence_worker.py` (5 ack, duplicate, conflict, failure, and concurrency tests); `tests/integration/test_persistence_worker_integration.py` (real MongoDB 8 replica-set pass) |
 | Retry with backoff | 007 | retry policy | TBD | TBD |
 | GET /events filters | 009 | query service | TBD | TBD |
 | GET /events/stats aggregation | 010 | Mongo pipeline | TBD | TBD |
@@ -18,7 +18,7 @@ This file starts as a planning matrix. Codex must update the final two columns w
 | Failure modes | 005, 011, 014, 016, 021, 025 | failure docs/tests | TBD | TBD |
 | Scaling considerations | 025 | architecture | `ARCHITECTURE.md` | doc review |
 | What changes in production | 004, 013, 025 | SQS/rebuild/scaling docs | TBD | doc review |
-| Unit tests | all + 019 | per-feature tests | Feature 001: `tests/unit/` and `pyproject.toml` markers | Feature 001: `make test-unit` (26 tests); remaining features TBD |
+| Unit tests | all + 019 | per-feature tests | `tests/unit/` and `pyproject.toml` markers | Full unit suite: 78 passed with two existing upstream dependency deprecation warnings; Feature 006 focused worker tests: 5 passed |
 | 2+ integration lifecycles | 020 | real-service tests | TBD | TBD |
 | Clear module boundaries | 001 | package architecture | `src/event_platform/` package boundaries and `src/event_platform/main.py` app factory | `tests/unit/test_import_safety.py`; source review |
 | Event input validation and canonical hashing | 002 | `specs/002-event-domain-contract/spec.md`, `contracts/domain.md` | `src/event_platform/domain/events.py` (`EventInput`, `CanonicalEvent`, `canonical_payload`, `payload_hash`) | `tests/unit/test_event_domain.py` (27 tests; all boundaries, redaction, immutability, and hash stability) |
@@ -30,7 +30,7 @@ This file starts as a planning matrix. Codex must update the final two columns w
 | AI in My Workflow | 025 | maintained workflow log | TBD | doc review |
 | Dockerfile/docker-compose bonus | 022 | full stack | TBD | smoke |
 | Rate limiting bonus (mandatory here) | 015 | distributed + fallback limiter | TBD | TBD |
-| Event deduplication bonus | 006 | unique ID/payload hash | TBD | TBD |
+| Event deduplication bonus | 006 | unique ID/payload hash | `src/event_platform/worker/persistence.py` verifies same-hash duplicates, leaves conflicting deliveries unacknowledged unless an explicit disposition hook accepts them, and exposes immutable worker metrics | `tests/unit/test_persistence_worker.py`; `tests/integration/test_persistence_worker_integration.py` confirms duplicate delivery does not create a second Mongo document |
 | DLQ simulation bonus | 007 | local redrive | TBD | TBD |
 | AWS SQS drop-in notes | 004, 025 | port + design notes | TBD | doc review |
 | Reviewer UI value-add | 024 | Compose UI | TBD | browser/smoke |
