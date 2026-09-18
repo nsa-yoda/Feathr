@@ -90,3 +90,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** store event IDs as lowercase strings for portable API/Mongo/projection identity, keep pagination's opaque cursor encoding in the API layer, and omit metadata/wildcard indexes per ADR-0010.
 - **Artifacts/code affected:** `specs/003-mongodb-store-indexes/`, `src/event_platform/storage/`, `tests/unit/test_mongo_store.py`, `tests/integration/test_mongo_store_integration.py`, `pyproject.toml`, `uv.lock`, traceability, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** Feature 003 storage tests pass 9/9 and the real replica-set integration test passes with a temporary MongoDB 8 container; full unit suite, Ruff, and strict mypy are rerun before commit. The host `uv lock --check` remains unavailable because uv panics in the macOS system-configuration layer.
+
+### 2026-09-18 — In-process SQS-style queue implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** implement the bounded local queue required by the queue semantics constitution before ingestion API work.
+- **AI proposal/contribution:** used `asyncio.Condition`, an injectable monotonic clock, recursively frozen bodies, per-delivery receipt UUIDs, visibility expiry, bounded sends, close wakeups, stats, and DLQ redrive.
+- **What was useful:** deterministic clock advancement plus a wake hook made expiry/redelivery tests fast and avoided arbitrary sleeps; tests cover stale receipts and concurrent consumers.
+- **Pushback/correction:** the queue remains independent of Mongo and HTTP; no fake distributed durability or exactly-once claim was introduced.
+- **Human decision and rationale:** capacity includes in-flight messages, receipt handles rotate on every receive, and delete remains valid for an already returned delivery after queue close.
+- **Artifacts/code affected:** `specs/004-inprocess-sqs-queue/`, `src/event_platform/queue/`, `tests/unit/test_in_process_queue.py`, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** queue tests pass 6/6; full unit suite passes 68 tests with two existing dependency warnings; Ruff and strict mypy pass; integration/failure marker suites are empty-safe.
