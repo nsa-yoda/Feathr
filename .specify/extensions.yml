@@ -1,0 +1,24 @@
+installed:
+- review
+- staff-review
+settings:
+  auto_execute_hooks: true
+hooks:
+  after_implement:
+  - extension: staff-review
+    command: speckit.staff-review.run
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Run staff-level code review?
+    description: Reviews implementation changes against spec for correctness, security,
+      and quality
+    condition: null
+  - extension: review
+    command: speckit.review.run
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Run PR review on implemented changes?
+    description: Comprehensive review after implementation
+    condition: null

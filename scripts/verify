@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "==> formatting"
+test -z "$(gofmt -l .)"
+
+echo "==> vet"
+go vet ./...
+
+echo "==> tests"
+go test ./...
+
+echo "==> race tests"
+go test -race ./...
+
+echo "==> build"
+go build ./...
+
+echo "==> generated files"
+# buf lint
+# buf breaking ...
+# sqlc diff/check, if applicable
+# OpenAPI validation, if applicable
+
+echo "==> docker"
+docker compose build
+
+echo "==> integration tests"
+# docker compose up -d
+# integration/e2e test command here
+
+echo "Verification passed."
+

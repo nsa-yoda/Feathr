@@ -1,0 +1,411 @@
+schema_version: '1.0'
+workflow:
+  id: feathr-autonomous-project
+  name: Feather Autonomous Project Completion
+  version: 1.0.0
+  author: Juan
+  description: 'Sequentially processes every existing Spec Kit feature through plan,
+    tasks, analyze, implement, converge, verification, repair, and final convergence
+    using Codex without human gates.
+
+    '
+  integration: codex
+requires:
+  speckit_version: '>=1.0.4'
+  integrations:
+    any:
+    - codex
+inputs: {}
+steps:
+- id: require-verification-script
+  type: shell
+  run: "if [ ! -x \"./scripts/verify\" ]; then\n  echo \"ERROR: ./scripts/verify does\
+    \ not exist or is not executable.\" >&2\n  echo \"Create it before running this\
+    \ workflow.\" >&2\n  exit 2\nfi\n"
+- id: discover-specs
+  type: shell
+  run: "python3 - <<'PY'\nimport json\nimport pathlib\nimport sys\n\nroot = pathlib.Path.cwd()\n\
+    specs_root = root / \"specs\"\norder_file = root / \".specify\" / \"spec-order.txt\"\
+    \n\nif not specs_root.is_dir():\n    print(\"ERROR: specs/ directory does not\
+    \ exist.\", file=sys.stderr)\n    sys.exit(2)\n\nspecs_root_resolved = specs_root.resolve()\n\
+    \ndef resolve_feature(raw: str):\n    value = raw.strip()\n\n    # Ignore blanks/comments.\n\
+    \    if not value or value.startswith(\"#\"):\n        return None\n\n    # Allow\
+    \ inline comments.\n    value = value.split(\"#\", 1)[0].strip()\n\n    if not\
+    \ value:\n        return None\n\n    p = pathlib.Path(value)\n\n    # Accept all\
+    \ of these:\n    #\n    #   001-auth\n    #   specs/001-auth\n    #   specs/001-auth/\n\
+    \    #   specs/001-auth/spec.md\n    #\n    if p.name == \"spec.md\":\n      \
+    \  if not p.is_absolute():\n            p = root / p\n        feature = p.parent\n\
+    \    elif value.startswith(\"specs/\"):\n        feature = root / p\n    else:\n\
+    \        feature = specs_root / p\n\n    try:\n        resolved = feature.resolve()\n\
+    \        resolved.relative_to(specs_root_resolved)\n    except (ValueError, OSError):\n\
+    \        raise ValueError(\n            f\"Feature escapes specs/: {value!r}\"\
+    \n        )\n\n    spec_file = resolved / \"spec.md\"\n\n    if not resolved.is_dir():\n\
+    \        raise ValueError(\n            f\"Feature directory does not exist: \"\
+    \n            f\"{resolved.relative_to(root)}\"\n        )\n\n    if not spec_file.is_file():\n\
+    \        raise ValueError(\n            f\"Feature does not contain spec.md: \"\
+    \n            f\"{resolved.relative_to(root)}\"\n        )\n\n    return resolved.relative_to(root).as_posix()\n\
+    \ntry:\n    features = []\n\n    if order_file.is_file():\n        print(\n  \
+    \          f\"Using explicit feature order from \"\n            f\"{order_file.relative_to(root)}\"\
+    ,\n            file=sys.stderr\n        )\n\n        for line_number, raw in enumerate(\n\
+    \            order_file.read_text(encoding=\"utf-8\").splitlines(),\n        \
+    \    start=1,\n        ):\n            try:\n                feature = resolve_feature(raw)\n\
+    \            except ValueError as exc:\n                print(\n             \
+    \       f\"ERROR in {order_file.relative_to(root)} \"\n                    f\"\
+    line {line_number}: {exc}\",\n                    file=sys.stderr\n          \
+    \      )\n                print(\n                    f\"Raw entry: {raw!r}\"\
+    ,\n                    file=sys.stderr\n                )\n                sys.exit(4)\n\
+    \n            if feature:\n                features.append(feature)\n\n    else:\n\
+    \        print(\n            \"No .specify/spec-order.txt found; \"\n        \
+    \    \"discovering specs automatically.\",\n            file=sys.stderr\n    \
+    \    )\n\n        features = sorted(\n            p.parent.relative_to(root).as_posix()\n\
+    \            for p in specs_root.glob(\"*/spec.md\")\n        )\n\n    # Deduplicate\
+    \ while preserving order.\n    seen = set()\n    features = [\n        feature\n\
+    \        for feature in features\n        if not (feature in seen or seen.add(feature))\n\
+    \    ]\n\n    if not features:\n        print(\n            \"ERROR: No specs/*/spec.md\
+    \ files found.\",\n            file=sys.stderr\n        )\n        sys.exit(3)\n\
+    \n    print(\n        f\"Discovered {len(features)} feature(s):\",\n        file=sys.stderr\n\
+    \    )\n\n    for i, feature in enumerate(features, 1):\n        print(f\"  {i:03d}.\
+    \ {feature}\", file=sys.stderr)\n\n    # stdout intentionally contains ONLY JSON\
+    \ because the next\n    # workflow step parses it using from_json.\n    print(json.dumps(features))\n\
+    \nexcept Exception as exc:\n    print(f\"ERROR: {exc}\", file=sys.stderr)\n  \
+    \  sys.exit(5)\nPY\n"
+- id: process-specs
+  type: fan-out
+  items: '{{ steps.discover-specs.output.stdout | from_json }}'
+  max_concurrency: 1
+  step:
+    id: process-feature
+    type: if
+    condition: '{{ item != '''' }}'
+    then:
+    - id: activate-feature
+      type: shell
+      run: "python3 - <<'PY'\nimport json\nimport pathlib\n\nfeature = \"{{ item }}\"\
+        \n\npath = pathlib.Path(\".specify/feature.json\")\npath.parent.mkdir(parents=True,\
+        \ exist_ok=True)\n\npath.write_text(\n    json.dumps(\n        {\"feature_directory\"\
+        : feature},\n        indent=2\n    ) + \"\\n\"\n)\n\nprint(f\"Active Spec\
+        \ Kit feature: {feature}\")\nPY\n"
+    - id: check-plan
+      type: shell
+      run: test -f "{{ item }}/plan.md"
+      continue_on_error: true
+    - id: generate-plan-if-needed
+      type: if
+      condition: '{{ steps.check-plan.output.exit_code != 0 }}'
+      then:
+      - id: generate-plan
+        command: speckit.plan
+        input:
+          args: 'Produce a production-grade implementation plan for the active feature.
+            Treat spec.md and the project constitution as authoritative. Inspect the
+            existing repository before making architectural decisions. Reuse established
+            patterns where appropriate. Explicitly cover architecture, APIs, persistence,
+            validation, authorization, error handling, observability, migrations,
+            backward compatibility, testing, deployment, security, failure modes,
+            edge cases, and operational concerns applicable to this feature. Do not
+            reduce or reinterpret requirements merely to simplify implementation.
+
+            '
+    - id: check-tasks
+      type: shell
+      run: test -f "{{ item }}/tasks.md"
+      continue_on_error: true
+    - id: generate-tasks-if-needed
+      type: if
+      condition: '{{ steps.check-tasks.output.exit_code != 0 }}'
+      then:
+      - id: generate-tasks
+        command: speckit.tasks
+        input:
+          args: 'Generate an exhaustive production-grade implementation task list.
+            Every requirement, acceptance criterion, architectural decision, validation
+            rule, error condition, security requirement, migration, test requirement,
+            API contract, observability requirement, documentation obligation, and
+            operational concern defined by the spec and plan must be represented by
+            actionable tasks. Include unit, integration, contract, regression, and
+            end-to-end testing wherever applicable. Tasks must leave no intentionally
+            deferred or placeholder implementation.
+
+            '
+    - id: artifact-analysis
+      command: speckit.analyze
+      input:
+        args: 'Perform a strict consistency and completeness analysis. Treat spec.md
+          as authoritative. Identify contradictions, omissions, underspecified implementation
+          work, missing tests, uncovered edge cases, and requirements that are not
+          represented in tasks.md.
+
+          '
+    - id: reconcile-artifacts
+      type: prompt
+      prompt: "Review the currently active Spec Kit feature.\n\nThe previous speckit.analyze\
+        \ output is below:\n\n{{ steps.artifact-analysis.output.stdout }}\n\nResolve\
+        \ legitimate artifact inconsistencies before implementation.\n\nRules:\n\n\
+        - spec.md is the authoritative product contract.\n- Do NOT weaken, remove,\
+        \ narrow, or reinterpret requirements merely\n  to make implementation easier.\n\
+        - Do NOT modify application source code during this step.\n- Correct plan.md\
+        \ and tasks.md where necessary.\n- Preserve valid architectural decisions.\n\
+        - Preserve completed task checkboxes when tasks.md already existed.\n- Add\
+        \ missing tasks needed to satisfy requirements.\n- Add missing test work.\n\
+        - Resolve contradictions between plan.md and spec.md in favor of\n  spec.md.\n\
+        - If the analysis contains no actionable artifact problem, make no\n  changes.\n\
+        \nFinish with the artifacts ready for unattended implementation.\n"
+    - id: artifact-analysis-after-repair
+      command: speckit.analyze
+      input:
+        args: 'Re-run strict consistency and completeness analysis after artifact
+          reconciliation. Report any remaining issues, but do not weaken the specification.
+
+          '
+    - id: implement
+      command: speckit.implement
+      input:
+        args: "Fully implement every remaining unchecked task for the active feature.\n\
+          This is an unattended production implementation run.\nRequirements:\n- Do\
+          \ not stop after scaffolding. - Do not leave TODO implementations. - Do\
+          \ not leave placeholder handlers or fake persistence. - Do not silently\
+          \ skip difficult tasks. - Preserve existing architecture unless the approved\
+          \ plan requires\n  a change.\n- Implement validation and error handling\
+          \ completely. - Implement authorization and security requirements completely.\
+          \ - Implement database migrations and rollback-safe behavior where\n  applicable.\n\
+          - Implement observability requirements. - Implement all tests required by\
+          \ tasks.md. - Update generated code when required. - Keep API/schema/contracts\
+          \ synchronized with implementation. - Mark tasks complete only after the\
+          \ corresponding work actually\n  exists.\n\nContinue until tasks.md contains\
+          \ no legitimately incomplete task.\n"
+    - id: convergence-loop
+      type: do-while
+      condition: '{{ steps.convergence-hash-before.output.stdout != steps.convergence-hash-after.output.stdout
+        }}'
+      max_iterations: 8
+      steps:
+      - id: convergence-hash-before
+        type: shell
+        run: 'python3 - <<''PY''
+
+          import hashlib
+
+          import pathlib
+
+
+          path = pathlib.Path("{{ item }}/tasks.md")
+
+          print(hashlib.sha256(path.read_bytes()).hexdigest())
+
+          PY
+
+          '
+      - id: converge
+        command: speckit.converge
+        input:
+          args: 'Perform a strict production-readiness convergence assessment. Inspect
+            the actual current codebase rather than assuming checked tasks imply completion.
+            Look for missing, partial, contradictory, or unrequested implementation
+            relative to spec.md, plan.md, tasks.md, and the constitution. Include
+            security, authorization, validation, failure handling, persistence semantics,
+            API contracts, observability, concurrency, idempotency, migrations, tests,
+            and operational behavior where applicable. Append every actionable gap
+            as a convergence task.
+
+            '
+      - id: convergence-hash-after
+        type: shell
+        run: 'python3 - <<''PY''
+
+          import hashlib
+
+          import pathlib
+
+
+          path = pathlib.Path("{{ item }}/tasks.md")
+
+          print(hashlib.sha256(path.read_bytes()).hexdigest())
+
+          PY
+
+          '
+      - id: implement-convergence-findings
+        type: if
+        condition: '{{ steps.convergence-hash-before.output.stdout != steps.convergence-hash-after.output.stdout
+          }}'
+        then:
+        - id: implement-convergence
+          command: speckit.implement
+          input:
+            args: 'speckit.converge appended remediation tasks. Implement every newly-added
+              convergence task completely. Do not simply mark tasks complete. Inspect
+              the implementation, make the required production-quality changes, add
+              or update tests, and leave no known convergence task unfinished.
+
+              '
+    - id: convergence-guard-hash-before
+      type: shell
+      run: 'python3 - <<''PY''
+
+        import hashlib
+
+        import pathlib
+
+
+        path = pathlib.Path("{{ item }}/tasks.md")
+
+        print(hashlib.sha256(path.read_bytes()).hexdigest())
+
+        PY
+
+        '
+    - id: convergence-guard
+      command: speckit.converge
+      input:
+        args: 'Perform one final strict convergence assessment. Append every remaining
+          implementation gap. Do not declare convergence unless the actual code satisfies
+          the complete feature contract.
+
+          '
+    - id: convergence-guard-hash-after
+      type: shell
+      run: 'python3 - <<''PY''
+
+        import hashlib
+
+        import pathlib
+
+
+        path = pathlib.Path("{{ item }}/tasks.md")
+
+        print(hashlib.sha256(path.read_bytes()).hexdigest())
+
+        PY
+
+        '
+    - id: fail-if-not-converged
+      type: if
+      condition: '{{ steps.convergence-guard-hash-before.output.stdout != steps.convergence-guard-hash-after.output.stdout
+        }}'
+      then:
+      - id: convergence-failure
+        type: shell
+        run: 'echo "ERROR: Feature failed to converge within the configured convergence
+          limit." >&2
+
+          echo "Additional remediation tasks were still discovered by the final guard
+          pass." >&2
+
+          exit 40
+
+          '
+    - id: verify
+      type: shell
+      run: ./scripts/verify
+      timeout: 3600
+      continue_on_error: true
+    - id: repair-verification-if-needed
+      type: if
+      condition: '{{ steps.verify.output.exit_code != 0 }}'
+      then:
+      - id: verification-repair-loop
+        type: do-while
+        condition: '{{ steps.verify-after-repair.output.exit_code != 0 }}'
+        max_iterations: 5
+        steps:
+        - id: repair-verification
+          type: prompt
+          prompt: "The repository verification command:\n\n    ./scripts/verify\n\n\
+            is failing after implementation of the currently active\nSpec Kit feature.\n\
+            \nDiagnose and repair the failures.\n\nRequirements:\n\n- Run ./scripts/verify\
+            \ yourself and inspect the failures.\n- Fix root causes rather than suppressing\
+            \ symptoms.\n- Do not weaken, delete, skip, or disable legitimate tests.\n\
+            - Do not reduce coverage thresholds.\n- Do not remove lint/static-analysis/security\
+            \ checks.\n- Do not alter the specification to excuse a failure.\n- Do\
+            \ not introduce test-only production behavior.\n- Preserve backward compatibility\
+            \ unless the spec explicitly\n  requires otherwise.\n- Repair implementation,\
+            \ configuration, migrations,\n  generated artifacts, tests, or infrastructure\
+            \ as needed.\n- Continue until you believe ./scripts/verify should pass.\n"
+        - id: verify-after-repair
+          type: shell
+          run: ./scripts/verify
+          timeout: 3600
+          continue_on_error: true
+    - id: verification-final
+      type: shell
+      run: ./scripts/verify
+      timeout: 3600
+      continue_on_error: true
+    - id: fail-if-verification-still-broken
+      type: if
+      condition: '{{ steps.verification-final.output.exit_code != 0 }}'
+      then:
+      - id: verification-failure
+        type: shell
+        run: 'echo "ERROR: Verification remains broken after autonomous repair attempts."
+          >&2
+
+          exit 41
+
+          '
+    - id: post-verification-convergence-loop
+      type: do-while
+      condition: '{{ steps.post-convergence-hash-before.output.stdout != steps.post-convergence-hash-after.output.stdout
+        }}'
+      max_iterations: 4
+      steps:
+      - id: post-convergence-hash-before
+        type: shell
+        run: 'python3 - <<''PY''
+
+          import hashlib
+
+          import pathlib
+
+
+          path = pathlib.Path("{{ item }}/tasks.md")
+
+          print(hashlib.sha256(path.read_bytes()).hexdigest())
+
+          PY
+
+          '
+      - id: post-verification-converge
+        command: speckit.converge
+        input:
+          args: 'Reassess the implementation after verification and test-repair work.
+            Append any remaining requirement, architecture, correctness, security,
+            testing, or operational gap.
+
+            '
+      - id: post-convergence-hash-after
+        type: shell
+        run: 'python3 - <<''PY''
+
+          import hashlib
+
+          import pathlib
+
+
+          path = pathlib.Path("{{ item }}/tasks.md")
+
+          print(hashlib.sha256(path.read_bytes()).hexdigest())
+
+          PY
+
+          '
+      - id: post-convergence-implementation-if-needed
+        type: if
+        condition: '{{ steps.post-convergence-hash-before.output.stdout != steps.post-convergence-hash-after.output.stdout
+          }}'
+        then:
+        - id: post-convergence-implement
+          command: speckit.implement
+          input:
+            args: 'Implement every newly appended post-verification convergence task
+              completely and preserve the passing verification state.
+
+              '
+    - id: final-feature-verification
+      type: shell
+      run: ./scripts/verify
+      timeout: 3600
+- id: final-project-verification
+  type: shell
+  run: ./scripts/verify
+  timeout: 3600

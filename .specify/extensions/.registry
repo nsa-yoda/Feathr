@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "extensions": {
+    "staff-review": {
+      "version": "1.0.0",
+      "source": "local",
+      "manifest_hash": "sha256:320fa967c40ae943e37ceb0a1fb0f8dda42eb22b07be8428674ce72532e28e1e",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "codex": [
+          "speckit.staff-review.run"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-09-18T21:01:40.976480+00:00"
+    },
+    "review": {
+      "version": "1.0.1",
+      "source": "local",
+      "manifest_hash": "sha256:f32d9e9eb89ba127190a67c7e1bfab196130149c826f85f21748adfc374cf8d1",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "codex": [
+          "speckit.review.run",
+          "speckit.review.code",
+          "speckit.review.comments",
+          "speckit.review.tests",
+          "speckit.review.errors",
+          "speckit.review.types",
+          "speckit.review.simplify"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-09-18T21:02:15.092084+00:00"
+    }
+  }
+}

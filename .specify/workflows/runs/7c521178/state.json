@@ -1,0 +1,43 @@
+{
+  "run_id": "7c521178",
+  "workflow_id": "feathr-autonomous-project",
+  "installed_workflow_id": null,
+  "installed_registry_root": null,
+  "status": "failed",
+  "current_step_index": 1,
+  "current_step_id": "discover-specs",
+  "step_results": {
+    "require-verification-script": {
+      "type": "shell",
+      "integration": "codex",
+      "model": null,
+      "options": {},
+      "input": {},
+      "output": {
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "status": "completed",
+      "error": null
+    },
+    "discover-specs": {
+      "type": "shell",
+      "integration": "codex",
+      "model": null,
+      "options": {},
+      "input": {},
+      "output": {
+        "exit_code": 4,
+        "stdout": "",
+        "stderr": "ERROR: Feature specs/002-event-domain-contract does not contain spec.md\n"
+      },
+      "status": "failed",
+      "error": "Shell command exited with code 4."
+    }
+  },
+  "workflow_dir": "/Users/JuanSanchez/SphireProjects/Feathr/.specify/workflows",
+  "created_at": "2026-09-18T20:29:59.691486+00:00",
+  "updated_at": "2026-09-18T20:29:59.847530+00:00",
+  "error": "Shell command exited with code 4."
+}

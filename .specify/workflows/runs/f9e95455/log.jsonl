@@ -1,0 +1,24 @@
+{"event": "step_started", "step_id": "require-verification-script", "type": "shell", "timestamp": "2026-09-18T20:32:37.120836+00:00"}
+{"event": "step_completed", "step_id": "require-verification-script", "status": "completed", "timestamp": "2026-09-18T20:32:37.132240+00:00"}
+{"event": "step_started", "step_id": "discover-specs", "type": "shell", "timestamp": "2026-09-18T20:32:37.141508+00:00"}
+{"event": "step_completed", "step_id": "discover-specs", "status": "completed", "timestamp": "2026-09-18T20:32:37.186638+00:00"}
+{"event": "step_started", "step_id": "process-specs", "type": "fan-out", "timestamp": "2026-09-18T20:32:37.198990+00:00"}
+{"event": "step_completed", "step_id": "process-specs", "status": "completed", "timestamp": "2026-09-18T20:32:37.211402+00:00"}
+{"event": "step_started", "step_id": "process-specs:process-feature:0", "type": "if", "timestamp": "2026-09-18T20:32:37.220722+00:00"}
+{"event": "step_completed", "step_id": "process-specs:process-feature:0", "status": "completed", "timestamp": "2026-09-18T20:32:37.224793+00:00"}
+{"event": "step_started", "step_id": "activate-feature", "type": "shell", "timestamp": "2026-09-18T20:32:37.229562+00:00"}
+{"event": "step_completed", "step_id": "activate-feature", "status": "completed", "timestamp": "2026-09-18T20:32:37.289938+00:00"}
+{"event": "step_started", "step_id": "check-plan", "type": "shell", "timestamp": "2026-09-18T20:32:37.300182+00:00"}
+{"event": "step_completed", "step_id": "check-plan", "status": "completed", "timestamp": "2026-09-18T20:32:37.311930+00:00"}
+{"event": "step_started", "step_id": "generate-plan-if-needed", "type": "if", "timestamp": "2026-09-18T20:32:37.323684+00:00"}
+{"event": "step_completed", "step_id": "generate-plan-if-needed", "status": "completed", "timestamp": "2026-09-18T20:32:37.330207+00:00"}
+{"event": "step_started", "step_id": "check-tasks", "type": "shell", "timestamp": "2026-09-18T20:32:37.335921+00:00"}
+{"event": "step_completed", "step_id": "check-tasks", "status": "completed", "timestamp": "2026-09-18T20:32:37.347019+00:00"}
+{"event": "step_started", "step_id": "generate-tasks-if-needed", "type": "if", "timestamp": "2026-09-18T20:32:37.353097+00:00"}
+{"event": "step_completed", "step_id": "generate-tasks-if-needed", "status": "completed", "timestamp": "2026-09-18T20:32:37.357610+00:00"}
+{"event": "step_started", "step_id": "artifact-analysis", "type": "command", "timestamp": "2026-09-18T20:32:37.363600+00:00"}
+{"event": "step_completed", "step_id": "artifact-analysis", "status": "completed", "timestamp": "2026-09-18T20:38:03.023187+00:00"}
+{"event": "step_started", "step_id": "reconcile-artifacts", "type": "prompt", "timestamp": "2026-09-18T20:38:03.054853+00:00"}
+{"event": "step_completed", "step_id": "reconcile-artifacts", "status": "failed", "timestamp": "2026-09-18T20:43:03.103648+00:00"}
+{"event": "step_failed", "step_id": "reconcile-artifacts", "error": "Prompt timed out after 300 seconds.", "timestamp": "2026-09-18T20:43:03.105546+00:00"}
+{"event": "workflow_finished", "status": "failed", "timestamp": "2026-09-18T20:43:03.134589+00:00"}

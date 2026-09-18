@@ -1,0 +1,6 @@
+{"event": "step_started", "step_id": "require-verification-script", "type": "shell", "timestamp": "2026-09-18T20:29:59.705938+00:00"}
+{"event": "step_completed", "step_id": "require-verification-script", "status": "completed", "timestamp": "2026-09-18T20:29:59.719736+00:00"}
+{"event": "step_started", "step_id": "discover-specs", "type": "shell", "timestamp": "2026-09-18T20:29:59.724431+00:00"}
+{"event": "step_completed", "step_id": "discover-specs", "status": "failed", "timestamp": "2026-09-18T20:29:59.833028+00:00"}
+{"event": "step_failed", "step_id": "discover-specs", "error": "Shell command exited with code 4.", "timestamp": "2026-09-18T20:29:59.837345+00:00"}
+{"event": "workflow_finished", "status": "failed", "timestamp": "2026-09-18T20:29:59.843862+00:00"}
