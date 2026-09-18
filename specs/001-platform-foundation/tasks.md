@@ -107,12 +107,12 @@ description: "Dependency-ordered implementation tasks for Platform Foundation"
 
 **Purpose**: Reconcile reviewer documentation, traceability, requirements checks, and final Feature 001 evidence.
 
-- [ ] T022 [P] Document the actual start/stop command, settings defaults, four foundation quality commands, and liveness scope in `README.md` after the story implementation is stable.
-- [ ] T023 [P] Reconcile `docs/api-contract.md` with the implemented `/health/live`, `X-Request-ID`, and seven-field problem behavior without claiming later endpoints exist.
-- [ ] T024 [P] Replace unresolved Feature 001 evidence cells with concrete source and test references in `docs/requirements-traceability.md`, leaving unrelated feature rows untouched.
-- [ ] T025 Append factual Feature 001 AI contributions and corrections to `docs/ai-workflow-log.md`, and append timestamped findings/status to `CODEX_WORK.LOG` as requested by the user.
-- [ ] T026 Re-evaluate `specs/001-platform-foundation/checklists/requirements.md` and `specs/001-platform-foundation/checklists/foundation.md` against the implemented scope; resolve any requirements gap in the affected `spec.md`, `plan.md`, or `contracts/http-foundation.md` before acceptance.
-- [ ] T027 Run `make format-check`, `make lint`, `make typecheck`, `make test-unit`, and the scenarios in `specs/001-platform-foundation/quickstart.md`; record exact results, limitations, and deferred real-service suites in `CODEX_WORK.LOG`.
+- [X] T022 [P] Document the actual start/stop command, settings defaults, four foundation quality commands, and liveness scope in `README.md` after the story implementation is stable.
+- [X] T023 [P] Reconcile `docs/api-contract.md` with the implemented `/health/live`, `X-Request-ID`, and seven-field problem behavior without claiming later endpoints exist.
+- [X] T024 [P] Replace unresolved Feature 001 evidence cells with concrete source and test references in `docs/requirements-traceability.md`, leaving unrelated feature rows untouched.
+- [X] T025 Append factual Feature 001 AI contributions and corrections to `docs/ai-workflow-log.md`, and append timestamped findings/status to `CODEX_WORK.LOG` as requested by the user.
+- [X] T026 Re-evaluate `specs/001-platform-foundation/checklists/requirements.md` and `specs/001-platform-foundation/checklists/foundation.md` against the implemented scope; resolve any requirements gap in the affected `spec.md`, `plan.md`, or `contracts/http-foundation.md` before acceptance.
+- [X] T027 Run `make format-check`, `make lint`, `make typecheck`, `make test-unit`, and the scenarios in `specs/001-platform-foundation/quickstart.md`; record exact results, limitations, and deferred real-service suites in `CODEX_WORK.LOG`.
 
 **Checkpoint**: Feature 001 artifacts and implementation agree. Continue with `$speckit-analyze`, `$speckit-implement`, convergence, and the review gates in `CODEX-HANDOFF.md` at their prescribed workflow stages.
 

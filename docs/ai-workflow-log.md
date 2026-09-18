@@ -46,3 +46,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Pushback/correction:** human emphasized both should ship by default in Compose/repository.
 - **Human decision and rationale:** lightweight UI and executable Postman suite are mandatory value-adds, without sacrificing backend work.
 - **Artifacts/code affected:** ADR-0015, Features 023/024.
+
+### 2026-09-18 — Platform foundation planning and implementation
+
+- **Tool/model:** Codex with Spec Kit and Serena MCP.
+- **Task:** turn Feature 001's accepted request into a plan, dependency-ordered tasks, a runnable FastAPI foundation, and test evidence.
+- **AI proposal/contribution:** drafted the spec, design artifacts, contract, checklists, tasks, package boundaries, typed settings, lifespan, liveness, request IDs, and safe problem responses; wrote story tests before corresponding behavior.
+- **What was useful:** the cross-artifact check found that degraded dependency behavior and runtime JSON logging needed explicit deferral to later features. The tests exposed missing route/error behavior before implementation.
+- **Pushback/correction:** mypy rejected the initial exception handler signatures; the handler annotations were corrected before committing. The machine's configured GPG signer failed, so the first verified commit used a command-local unsigned override, recorded in `CODEX_WORK.LOG`.
+- **Human decision and rationale:** the user required timestamped work logging, heavy Serena use, and commits as coherent work slices. Feature 001 preserves a narrow foundation scope so liveness cannot be read as datastore readiness.
+- **Artifacts/code affected:** `specs/001-platform-foundation/`, `src/event_platform/`, `tests/unit/`, `README.md`, `docs/api-contract.md`, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** focused tests passed 17/17; Ruff format/lint and mypy passed after correction. Full Makefile and manual quickstart validation are the final Feature 001 gate.

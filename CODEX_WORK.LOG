@@ -141,3 +141,26 @@ This entry records the preceding `$speckit-plan` turn at the time of logging; it
 - Wrote T017-T018 problem-response and request-ID tests before implementation. The initial focused run failed in seven expected places, exposing missing problem shape, response headers, and OpenAPI declaration.
 - Completed and checked T019-T021: seven-field `application/problem+json` responses for 404/405/422/500, server-generated `X-Request-ID` propagation, preserved 405 `Allow`, sanitized unexpected errors, and the liveness OpenAPI 500 declaration. The focused US1-US3 suite passed 17 tests. Ruff lint and format checks passed; mypy initially found three handler annotation errors, which I fixed, and then passed 19 source files.
 - Two warnings still originate from installed Starlette/anyio TestClient internals. No application warning was emitted. Documentation and full Makefile verification remain.
+
+## 2026-09-18 12:16:46 EDT — First implementation commit
+
+- Commit `d10ae66` (`feat: establish Feature 001 platform foundation`) contains the verified Spec Kit design, tasks/checklists, lockfile/tooling, application skeleton, three foundation user stories, unit tests, and this log. `git diff --cached --check` passed after removing Markdown trailing spaces.
+- The first commit attempt failed because the configured GPG signer could not sign. I retried with `git -c commit.gpgsign=false commit` for this commit only; the repository/user Git signing configuration was not changed. No push was attempted.
+- Unrelated untracked `.agents/`, `.serena/`, and `.specify/` bootstrap content was excluded from the commit.
+
+## 2026-09-18 12:18:02 EDT — Paused at user request
+
+- The user requested a pause. Stopped Feature 001 work after updating `README.md`, `docs/api-contract.md`, `docs/requirements-traceability.md`, `docs/ai-workflow-log.md`, and checking T022-T025 in `tasks.md`. These documentation changes and this log entry are uncommitted.
+- T026 checklist re-evaluation and T027 full Makefile/manual quickstart validation remain open. The completed implementation commit is `d10ae66`; no push was attempted.
+
+## 2026-09-18 16:02:28 EDT — Implementation resumed
+
+- Resumed `$speckit-implement` from the paused state. Current authoritative state is commit `d10ae66` plus uncommitted T022-T025 documentation and task-status edits; unrelated `.agents/`, `.serena/`, and `.specify/` bootstrap content remains untracked and untouched.
+- Re-read the implementation workflow and Serena instructions. T026 and T027 are the only unchecked Feature 001 tasks. Extension hooks remain absent because `.specify/extensions.yml` does not exist.
+
+## 2026-09-18 16:04:26 EDT — Feature 001 verification complete
+
+- T026 checklist re-evaluation passed: `requirements.md` has 16/16 completed items and `foundation.md` has 20/20 completed items. The spec's deferred dependency/readiness/logging/metrics/rate-limit scope matches the implementation and documentation; no requirements gap remained.
+- T027 exact Makefile verification passed with `UV_CACHE_DIR=/tmp/feathr-uv-cache`: `make format-check` reported 38 files formatted; `make lint` reported all checks passed; `make typecheck` reported no issues in 19 source files; `make test-unit` passed 17 tests. The first sandboxed attempts failed only because the default uv cache was not writable, so the locked workflow was rerun with an isolated cache.
+- Quickstart live validation passed using `uv run --locked uvicorn ...`: `/health/live` returned 200 with `status=alive` and `X-Request-ID`; `/openapi.json` returned 200 and declared `application/problem+json` for the 500 response; `/missing?secret=SENTINEL_PRIVATE_QUERY` returned a 404 seven-field problem without query reflection; Ctrl-C produced clean shutdown logs. `EVENT_PLATFORM_LOG_LEVEL=LOUD` exited with status 3 before serving and named only `EVENT_PLATFORM_LOG_LEVEL`, without echoing `LOUD`.
+- The 17 unit tests still emit two upstream dependency deprecation warnings from Starlette's TestClient/httpx and anyio's BlockingPortal alias. They do not originate in application code and do not fail the checks. Real-service integration/failure suites, Docker Compose, Postman, readiness, metrics, and later endpoints remain deferred to their owning features.
