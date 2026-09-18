@@ -28,7 +28,7 @@ Expected: the lock agrees with `pyproject.toml`, all six commands pass, and unit
 In one terminal:
 
 ```bash
-uv run --locked uvicorn event_platform.main:create_app --factory --host 127.0.0.1 --port 8000 --workers 1
+uv run --locked uvicorn event_platform.main:create_app --factory --log-config src/event_platform/core/uvicorn_logging.json --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 In another terminal:
@@ -46,7 +46,7 @@ Expected: liveness returns `200` and `{"status":"alive"}`; OpenAPI returns `200`
 With no server already using port 8000:
 
 ```bash
-EVENT_PLATFORM_LOG_LEVEL=LOUD uv run --locked uvicorn event_platform.main:create_app --factory --host 127.0.0.1 --port 8000 --workers 1
+EVENT_PLATFORM_LOG_LEVEL=LOUD uv run --locked uvicorn event_platform.main:create_app --factory --log-config src/event_platform/core/uvicorn_logging.json --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 Expected: startup exits unsuccessfully before serving traffic. The diagnostic identifies `EVENT_PLATFORM_LOG_LEVEL` or its `log_level` field and does not echo the supplied value. The same rule applies to malformed future secret settings.

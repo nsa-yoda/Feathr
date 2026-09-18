@@ -2,7 +2,7 @@
 
 ## Logs
 
-JSON logs include `timestamp`, `level`, `service`, `event`, `request_id` when applicable, operation identifiers, and safe structured fields. Never log full arbitrary metadata by default.
+JSON logs include `timestamp`, `level`, `service`, `event`, `request_id` when applicable, operation identifiers, and safe structured fields. The foundation service uses `service: "event_platform"`. Never log full arbitrary metadata by default.
 
 Required event families include HTTP completion/errors, queue enqueue/receive/delete/redelivery/DLQ, worker processing, Mongo dependency state, ES projection/checkpoint/rebuild, Redis cache hit/miss/bypass, rate-limit allow/deny/fallback, and lifecycle startup/shutdown.
 

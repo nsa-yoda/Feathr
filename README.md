@@ -11,7 +11,7 @@ Use Python 3.12 or newer and `uv`. From the repository root:
 ```bash
 cp .env.example .env
 uv sync --locked
-uv run --locked uvicorn event_platform.main:create_app --factory --host 127.0.0.1 --port 8000 --workers 1
+uv run --locked uvicorn event_platform.main:create_app --factory --log-config src/event_platform/core/uvicorn_logging.json --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 Open `http://127.0.0.1:8000/docs` for API discovery or request `http://127.0.0.1:8000/health/live` for liveness. Stop the foreground server with Ctrl-C. Liveness returns `{"status":"alive"}` and proves only that the base process responds; it does not check MongoDB, Elasticsearch, Redis, or a queue. Those services are not needed to run Feature 001.

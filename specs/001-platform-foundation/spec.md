@@ -2,7 +2,7 @@
 
 **Feature Branch**: `main`
 **Created**: 2026-09-18
-**Status**: Ready for planning
+**Status**: Ready for review
 **Input**: `specs/001-platform-foundation/REQUEST.md`
 
 ## User Scenarios & Testing *(mandatory)*

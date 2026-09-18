@@ -3,25 +3,27 @@
 import logging
 from collections.abc import Mapping
 from http import HTTPStatus
-from uuid import uuid4
+from typing import Annotated
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
+_MAX_PROBLEM_TEXT_LENGTH = 2048
 
 
 class ProblemResponse(BaseModel):
-    type: str = "about:blank"
-    title: str
-    status: int
-    detail: str
-    instance: str
-    error_code: str
-    request_id: str
+    type: Annotated[str, Field(min_length=1, max_length=2048)] = "about:blank"
+    title: Annotated[str, Field(min_length=1, max_length=2048)]
+    status: Annotated[int, Field(ge=100, le=599)]
+    detail: Annotated[str, Field(min_length=1, max_length=2048)]
+    instance: Annotated[str, Field(min_length=1, max_length=2048)]
+    error_code: Annotated[str, Field(min_length=1, max_length=256)]
+    request_id: UUID
 
 
 def _request_id(request: Request) -> str:
@@ -46,13 +48,13 @@ def _problem(
         title=title,
         status=status,
         detail=detail,
-        instance=request.url.path,
+        instance=request.url.path[:_MAX_PROBLEM_TEXT_LENGTH],
         error_code=error_code,
         request_id=request_id,
     )
     response = JSONResponse(
         status_code=status,
-        content=body.model_dump(),
+        content=body.model_dump(mode="json"),
         media_type="application/problem+json",
         headers=headers,
     )
@@ -61,7 +63,8 @@ def _problem(
 
 
 async def handle_http_error(request: Request, error: Exception) -> JSONResponse:
-    assert isinstance(error, StarletteHTTPException)
+    if not isinstance(error, StarletteHTTPException):
+        return await handle_unexpected_error(request, error)
     status = error.status_code
     try:
         title = HTTPStatus(status).phrase
@@ -84,7 +87,8 @@ async def handle_http_error(request: Request, error: Exception) -> JSONResponse:
 
 
 async def handle_validation_error(request: Request, error: Exception) -> JSONResponse:
-    assert isinstance(error, RequestValidationError)
+    if not isinstance(error, RequestValidationError):
+        return await handle_unexpected_error(request, error)
     return _problem(
         request,
         status=422,

@@ -126,6 +126,15 @@ description: "Dependency-ordered implementation tasks for Platform Foundation"
 - [X] T031 [P] Update `README.md` and `specs/001-platform-foundation/quickstart.md` to document the six repository quality commands and state that the integration/failure commands are intentionally empty-safe in Feature 001 while later features supply their real-service suites.
 - [X] T032 Run `make format-check`, `make lint`, `make typecheck`, `make test-unit`, `make test-integration`, `make test-failure`, and the bounded process smoke scenario; record exact results and any deferred real-service behavior in `CODEX_WORK.LOG`.
 
+## Phase 8: Review Gate Remediation
+
+**Purpose**: Resolve the review findings required before the Feature 001 merge gate.
+
+- [X] T033 Configure checked-in Uvicorn JSON logging for startup, shutdown, and access records; redact query strings and preserve the service field across application logging reconfiguration in `src/event_platform/core/logging.py` and `src/event_platform/core/uvicorn_logging.json`.
+- [X] T034 [P] Load the documented `.env` file, classify unreadable configuration sources, normalize sanitized invalid-setting field names, and expose them through structured startup failure logging in `src/event_platform/core/settings.py` and `src/event_platform/main.py`.
+- [X] T035 [P] Strengthen the problem response model and exception-handler narrowing in `src/event_platform/api/problems.py`, bound long problem instances, and extend lifecycle, settings, request-ID, and process-smoke regression coverage for cleanup, fresh IDs, JSON records, and redaction.
+- [X] T036 [P] Reconcile observability, traceability, AI workflow, README, quickstart, plan, and Feature 001 status artifacts with the review-gate implementation and current 26-test evidence.
+
 ---
 
 ## Dependencies & Execution Order

@@ -31,9 +31,13 @@ def test_invalid_environment_prevents_app_startup(
         with TestClient(create_app()) as client:
             client.get("/health/live")
 
-    assert any(
-        getattr(record, "event", None) == "service.startup_failed" for record in caplog.records
-    )
+    startup_failures = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "service.startup_failed"
+    ]
+    assert startup_failures
+    assert startup_failures[-1].error_fields == ["EVENT_PLATFORM_LOG_LEVEL"]
 
 
 @pytest.mark.unit

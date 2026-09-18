@@ -30,8 +30,10 @@ def test_base_app_serves_liveness_and_api_description() -> None:
 
 @pytest.mark.unit
 def test_base_app_lifespan_exits_cleanly() -> None:
-    with TestClient(create_app()) as client:
+    app = create_app()
+    with TestClient(app) as client:
         assert client.get("/openapi.json").status_code == 200
+    assert not hasattr(app.state, "settings")
 
 
 def test_lifespan_emits_structured_state_events(caplog: pytest.LogCaptureFixture) -> None:
@@ -47,4 +49,5 @@ def test_lifespan_emits_structured_state_events(caplog: pytest.LogCaptureFixture
     for record in lifecycle_records:
         structured = json.loads(JsonLogFormatter().format(record))
         assert structured["event"] in events
+        assert structured["service"] == "event_platform"
         assert structured["logger"] == "event_platform.lifecycle"

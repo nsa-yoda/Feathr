@@ -56,4 +56,15 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Pushback/correction:** mypy rejected the initial exception handler signatures; the handler annotations were corrected before committing. The machine's configured GPG signer failed, so the first verified commit used a command-local unsigned override, recorded in `CODEX_WORK.LOG`.
 - **Human decision and rationale:** the user required timestamped work logging, heavy Serena use, and commits as coherent work slices. Feature 001 preserves a narrow foundation scope so liveness cannot be read as datastore readiness.
 - **Artifacts/code affected:** `specs/001-platform-foundation/`, `src/event_platform/`, `tests/unit/`, `README.md`, `docs/api-contract.md`, and `CODEX_WORK.LOG`.
-- **Validation/review performed:** focused tests passed 21/21; Ruff format/lint and mypy passed after correction. Full Makefile and manual quickstart validation are the final Feature 001 gate.
+- **Validation/review performed:** focused tests passed 26/26; Ruff format/lint and mypy passed after correction. Full Makefile and manual quickstart validation are the final Feature 001 gate.
+
+### 2026-09-18 — Review gate remediation and merge preparation
+
+- **Tool/model:** Codex with Spec Kit review extensions and Serena MCP.
+- **Task:** resolve fresh staff/comprehensive review findings before moving Feature 001 to the merge gate.
+- **AI proposal/contribution:** configured Uvicorn with checked-in JSON startup/access logging, removed query strings from access records, added `.env` loading and sanitized startup field context, strengthened problem response types, and expanded lifecycle/process/request-ID regression coverage.
+- **What was useful:** the subprocess smoke test exposed that application startup reconfigured the Uvicorn access handler back to a generic formatter; keeping a dedicated access formatter after lifespan configuration closed that runtime gap.
+- **Pushback/correction:** review evidence was updated from 21 to the current 26 unit tests, while historical work-log entries remain unchanged as historical records.
+- **Human decision and rationale:** accept only after actual subprocess output is parsed as JSON, lifecycle events are present, query secrets are absent, and all repository quality targets pass.
+- **Artifacts/code affected:** `src/event_platform/core/logging.py`, `src/event_platform/core/uvicorn_logging.json`, `src/event_platform/core/settings.py`, `src/event_platform/api/problems.py`, `src/event_platform/main.py`, unit tests, traceability, and Feature 001 review artifacts.
+- **Validation/review performed:** Ruff format/lint, strict mypy, 26 unit tests, and empty-safe integration/failure suites passed; the subprocess smoke test passed with reserved-socket startup, event names on every JSON record, and redacted access logging.

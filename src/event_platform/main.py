@@ -29,6 +29,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 extra={
                     "event": "service.startup_failed",
                     "error_type": type(error).__name__,
+                    "error_fields": list(error.fields),
                 },
             )
             raise

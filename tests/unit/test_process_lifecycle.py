@@ -47,6 +47,7 @@ def test_uvicorn_factory_process_starts_serves_and_stops_cleanly() -> None:
     port = int(listener.getsockname()[1])
     environment = os.environ.copy()
     source_path = str(repo_root / "src")
+    log_config = repo_root / "src/event_platform/core/uvicorn_logging.json"
     environment["PYTHONPATH"] = os.pathsep.join(
         value for value in (source_path, environment.get("PYTHONPATH")) if value
     )
@@ -60,6 +61,8 @@ def test_uvicorn_factory_process_starts_serves_and_stops_cleanly() -> None:
                 "--factory",
                 "--fd",
                 str(listener.fileno()),
+                "--log-config",
+                str(log_config),
                 "--workers",
                 "1",
             ],
@@ -74,12 +77,23 @@ def test_uvicorn_factory_process_starts_serves_and_stops_cleanly() -> None:
         listener.close()
 
     try:
-        status, body = _wait_for_liveness(process, f"http://127.0.0.1:{port}/health/live")
+        status, body = _wait_for_liveness(
+            process,
+            f"http://127.0.0.1:{port}/health/live?token=SENTINEL_SECRET",
+        )
         assert status == 200
         assert json.loads(body) == {"status": "alive"}
 
         process.send_signal(signal.SIGINT)
         assert process.wait(timeout=10) == 0, process.stdout.read() if process.stdout else ""
+        output = process.stdout.read() if process.stdout else ""
+        records = [json.loads(line) for line in output.splitlines() if line.strip()]
+        assert records
+        assert all(record["service"] == "event_platform" for record in records)
+        assert all(record["event"] for record in records)
+        assert any(record.get("event") == "service.startup" for record in records)
+        assert any(record.get("event") == "service.shutdown" for record in records)
+        assert "SENTINEL_SECRET" not in output
     finally:
         if process.poll() is None:
             process.kill()

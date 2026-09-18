@@ -42,6 +42,15 @@ def test_unknown_route_uses_problem_shape_without_query_reflection() -> None:
     assert "SENTINEL_PRIVATE_QUERY" not in str(body)
 
 
+def test_unknown_route_with_long_path_keeps_problem_shape() -> None:
+    long_path = "/" + "x" * 4096
+    with TestClient(create_app()) as client:
+        response = client.get(long_path)
+
+    body = assert_problem(response, 404, "route_not_found")
+    assert len(str(body["instance"])) == 2048
+
+
 def test_method_not_allowed_preserves_allow_header() -> None:
     with TestClient(create_app()) as client:
         response = client.post("/health/live")

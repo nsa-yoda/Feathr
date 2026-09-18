@@ -60,6 +60,8 @@ specs/001-platform-foundation/
 └── contracts/http-foundation.md
 ```
 
+Repository-level acceptance evidence also updates `README.md`, `docs/api-contract.md`, `docs/requirements-traceability.md`, `docs/ai-workflow-log.md`, and `CODEX_WORK.LOG`. The process smoke path uses `src/event_platform/core/uvicorn_logging.json` so Uvicorn lifecycle and access records share the service JSON schema.
+
 `tasks.md` contains the dependency-ordered implementation and acceptance tasks generated from these artifacts.
 
 ### Source Code (repository root)
@@ -72,7 +74,9 @@ src/event_platform/
 ├── __init__.py
 ├── main.py                 # create_app ASGI factory
 ├── core/
-│   └── settings.py         # validated configuration
+│   ├── logging.py          # structured runtime and access logging
+│   ├── settings.py         # validated configuration
+│   └── uvicorn_logging.json # pre-lifespan Uvicorn logging configuration
 ├── api/
 │   ├── problems.py         # problem model and exception mapping
 │   ├── middleware/         # request ID assignment
@@ -93,7 +97,7 @@ tests/
 └── failure/                # reserved for failure features
 ```
 
-**Structure Decision**: Extend the repository's existing `src/event_platform` placeholders. `api` owns HTTP concerns, `core` owns settings, and later `application`/`domain` modules hold behavior and contracts. Queue, storage, search, cache, and rate-limit packages are boundaries only in this feature; avoid premature interfaces or client creation. `main.py` supplies a no-argument app factory loaded with `uvicorn --factory`; settings are validated during lifespan startup or explicitly injected by tests. Minimal request ID middleware sets request state and response header; Feature 015 expands observability without changing the public error shape. The Makefile exposes the four foundation quality checks plus no-op-safe integration and failure category commands so later feature suites have stable entrypoints.
+**Structure Decision**: Extend the repository's existing `src/event_platform` placeholders. `api` owns HTTP concerns, `core` owns settings and the Uvicorn JSON logging configuration, and later `application`/`domain` modules hold behavior and contracts. Queue, storage, search, cache, and rate-limit packages are boundaries only in this feature; avoid premature interfaces or client creation. `main.py` supplies a no-argument app factory loaded with `uvicorn --factory`; settings are validated during lifespan startup or explicitly injected by tests. Minimal request ID middleware sets request state and response header; Feature 015 expands observability without changing the public error shape. The Makefile exposes the four foundation quality checks plus no-op-safe integration and failure category commands so later feature suites have stable entrypoints.
 
 ## Phase 0 Research Decisions
 
