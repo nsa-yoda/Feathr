@@ -198,3 +198,8 @@ This entry records the preceding `$speckit-plan` turn at the time of logging; it
 - No `speckit-pipeline` skill, executable, local workflow, or installed bundle exists in this workspace. The installed Specify CLI is version 0.16.2 and reports no workflows or bundles.
 - `specify workflow search pipeline` and `specify workflow search speckit` both failed because all configured catalogs failed to fetch. No installation or external mutation was attempted, and no unrelated files were changed.
 - The requested pipeline cannot be run safely without its workflow definition or a reachable catalog/install source. Existing Feature 001 commits and the untracked `.agents/`, `.serena/`, and `.specify/` bootstrap content remain unchanged.
+
+## 2026-09-18 16:28:59 EDT — Spec execution order
+
+- Inspected `specs/FEATURE-MANIFEST.yaml` and all 25 feature `REQUEST.md` files. Their numeric dependency order is contiguous from 001 through 025 and matches the feature directory basenames.
+- Created `.specify/spec-order.txt` with one exact feature directory name per line. Validation confirmed all 25 entries match the real `specs/` directories in numeric order.
