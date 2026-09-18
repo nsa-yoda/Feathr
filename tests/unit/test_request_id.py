@@ -30,3 +30,17 @@ def test_inbound_request_id_is_not_trusted() -> None:
     UUID(generated)
     assert generated != "attacker-controlled"
     assert response.json()["request_id"] == generated
+
+
+def test_successful_responses_include_server_request_id() -> None:
+    with TestClient(create_app()) as client:
+        live = client.get("/health/live")
+        openapi = client.get("/openapi.json")
+
+    live_id = live.headers["x-request-id"]
+    openapi_id = openapi.headers["x-request-id"]
+    UUID(live_id)
+    UUID(openapi_id)
+    assert live.status_code == 200
+    assert openapi.status_code == 200
+    assert live_id != openapi_id

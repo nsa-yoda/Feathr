@@ -17,9 +17,11 @@ make format-check
 make lint
 make typecheck
 make test-unit
+make test-integration
+make test-failure
 ```
 
-Expected: the lock agrees with `pyproject.toml`, all checks pass, and unit tests verify settings, lifespan, import behavior, and problem responses. Pytest registers `unit`, `integration`, and `failure` markers; real-service integration and failure suites are added by later features.
+Expected: the lock agrees with `pyproject.toml`, all six commands pass, and unit tests verify settings, lifespan, import behavior, request IDs, and problem responses. The integration and failure commands use their registered markers and pass safely while their directories contain no runnable tests; later features add real-service coverage.
 
 ## Start and inspect the base service
 

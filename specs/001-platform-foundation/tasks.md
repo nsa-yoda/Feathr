@@ -114,7 +114,17 @@ description: "Dependency-ordered implementation tasks for Platform Foundation"
 - [X] T026 Re-evaluate `specs/001-platform-foundation/checklists/requirements.md` and `specs/001-platform-foundation/checklists/foundation.md` against the implemented scope; resolve any requirements gap in the affected `spec.md`, `plan.md`, or `contracts/http-foundation.md` before acceptance.
 - [X] T027 Run `make format-check`, `make lint`, `make typecheck`, `make test-unit`, and the scenarios in `specs/001-platform-foundation/quickstart.md`; record exact results, limitations, and deferred real-service suites in `CODEX_WORK.LOG`.
 
-**Checkpoint**: Feature 001 artifacts and implementation agree. Continue with `$speckit-analyze`, `$speckit-implement`, convergence, and the review gates in `CODEX-HANDOFF.md` at their prescribed workflow stages.
+**Checkpoint**: The existing Feature 001 implementation and artifacts agree on the completed baseline. T028-T032 close the remaining acceptance gaps before unattended implementation/acceptance; after they complete, run `$speckit-analyze`, `$speckit-converge`, and the review gates in `CODEX-HANDOFF.md` at their prescribed workflow stages.
+
+## Phase 7: Artifact Remediation & Acceptance Closure
+
+**Purpose**: Close the remaining contract-to-test and repository-command gaps identified during cross-artifact analysis. These tasks do not add business behavior or external dependency integrations.
+
+- [X] T028 [US1] Add a bounded process-level smoke test in `tests/unit/test_process_lifecycle.py` for the documented `uvicorn --factory` entrypoint: observe liveness after startup, send normal termination, and assert the child process exits successfully without requiring MongoDB, Elasticsearch, Redis, or a queue service.
+- [X] T029 [P] Add `test-integration` and `test-failure` targets to `Makefile` that invoke the locked pytest environment against `tests/integration/` and `tests/failure/` with their registered markers and `--pass-with-no-tests`; retain the pass-with-no-tests behavior until the owning later features add real-service cases.
+- [X] T030 [P] Extend `tests/unit/test_request_id.py` to assert that successful `/health/live` and `/openapi.json` responses include a fresh valid server-generated `X-Request-ID`, covering the HTTP contract's all-response requirement in addition to error responses.
+- [X] T031 [P] Update `README.md` and `specs/001-platform-foundation/quickstart.md` to document the six repository quality commands and state that the integration/failure commands are intentionally empty-safe in Feature 001 while later features supply their real-service suites.
+- [X] T032 Run `make format-check`, `make lint`, `make typecheck`, `make test-unit`, `make test-integration`, `make test-failure`, and the bounded process smoke scenario; record exact results and any deferred real-service behavior in `CODEX_WORK.LOG`.
 
 ---
 
@@ -126,6 +136,7 @@ description: "Dependency-ordered implementation tasks for Platform Foundation"
 2. Foundational T005-T007 precedes every user story. T005 and T006 can proceed in parallel after their setup dependencies; T007 follows T005 and the lockfile.
 3. US1 follows Foundational and produces the app route/factory baseline. US2 and US3 each use that baseline but have no dependency on each other.
 4. Polish follows all three story checkpoints. Its independent documentation edits can proceed in parallel; final checklist review and validation follow them.
+5. Artifact remediation follows the existing implementation evidence: T028 and T030 depend on the implemented US1/US3 behavior, T029 depends on the existing pytest markers and test directories, T031 follows T029, and T032 follows T028-T031.
 
 ### User Story Dependencies
 
@@ -146,6 +157,7 @@ description: "Dependency-ordered implementation tasks for Platform Foundation"
 - T008/T009, T012/T013, and T017/T018 are independent test-file pairs within their stories.
 - T014/T015 and T019/T020 are separate implementation-file pairs after the tests for their stories exist.
 - T022/T023/T024 touch separate documentation files after story implementation.
+- T028, T029, and T030 touch separate test/tooling files and can proceed in parallel once their existing prerequisites are present; T031 follows T029, and T032 is the final validation task.
 
 ## Parallel Execution Examples
 
@@ -185,9 +197,10 @@ then T021 src/event_platform/main.py and src/event_platform/api/routes/health.py
 1. Add US2 typed configuration and fail-fast startup, preserving US1 behavior.
 2. Add US3 problem mapping and request IDs, preserving US1/US2 behavior.
 3. Finish documentation, checklists, traceability, and the applicable Feature 001 quality gates.
+4. Close the analyzed artifact gaps with the process-level smoke test, all-response request-ID assertions, stable integration/failure command entrypoints, and updated reviewer instructions.
 
 ### Acceptance Boundaries
 
-- The test markers and directories for real-service integration/failure coverage are created now; those suites and their `make test-integration`/`make test-failure` gates become meaningful when later features introduce MongoDB, Elasticsearch, Redis, and failure paths. Record them as deferred for Feature 001 rather than reporting an empty suite as passing.
+- The test markers and directories for real-service integration/failure coverage are created now. T029 supplies stable `make test-integration`/`make test-failure` entrypoints that are explicitly empty-safe; those suites become meaningful when later features introduce MongoDB, Elasticsearch, Redis, and failure paths. Record the empty-safe foundation result as deferred real-service coverage, not as evidence that those dependency semantics have passed.
 - The mandatory staff and full review extensions are separate workflow gates. The earlier bootstrap attempt could not download them because GitHub DNS resolution failed; retry their installation before those review stages, without changing Feature 001's runtime scope.
 - The user authorized commits during implementation. Stage verified Feature 001 work selectively; no push was requested.

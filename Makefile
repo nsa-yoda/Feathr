@@ -1,4 +1,4 @@
-.PHONY: format-check lint typecheck test-unit
+.PHONY: format-check lint typecheck test-unit test-integration test-failure
 
 format-check:
 	uv run --locked ruff format --check src tests
@@ -11,3 +11,9 @@ typecheck:
 
 test-unit:
 	uv run --locked pytest -q tests/unit
+
+test-integration:
+	uv run --locked pytest -q tests/integration -m integration --pass-with-no-tests
+
+test-failure:
+	uv run --locked pytest -q tests/failure -m failure --pass-with-no-tests

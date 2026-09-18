@@ -30,9 +30,11 @@ make format-check
 make lint
 make typecheck
 make test-unit
+make test-integration
+make test-failure
 ```
 
-The unit suite covers settings, lifespan, import safety, request IDs, and problem responses. The current HTTP contract is in [the foundation contract](specs/001-platform-foundation/contracts/http-foundation.md), and its manual check is in [the quickstart validation](specs/001-platform-foundation/quickstart.md). Integration and failure suites require later features and real services.
+The unit suite covers settings, lifespan, import safety, request IDs, and problem responses. The current HTTP contract is in [the foundation contract](specs/001-platform-foundation/contracts/http-foundation.md), and its manual check is in [the quickstart validation](specs/001-platform-foundation/quickstart.md). The integration and failure commands are empty-safe until later features add real-service cases.
 
 ## Target reviewer quick start after later features
 
