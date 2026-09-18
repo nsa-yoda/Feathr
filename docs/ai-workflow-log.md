@@ -134,3 +134,25 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** attempt 1 is the first receive, default maximum receives is 5, permanent validation/conflict failures bypass retry, and unknown failures receive only bounded retry before DLQ.
 - **Artifacts/code affected:** `specs/007-retry-backoff-dlq/`, `src/event_platform/queue/`, `src/event_platform/worker/`, queue/worker tests, queue/failure architecture docs, traceability, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** initial focused Feature 007 and regression pass was 18 tests; after review remediation the focused queue/worker set passes 36 tests. The full unit suite passes 103 tests with two existing upstream dependency warnings; integration/failure marker suites are empty-safe; final review evidence is recorded in the Feature 007 review report before commit.
+
+### 2026-09-18 — Event query API implementation and review preparation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** implement Feature 008's canonical filtered event query with safe keyset pagination.
+- **AI proposal/contribution:** added a typed FastAPI `GET /events` route, filter-bound HMAC cursor codec, canonical Mongo store boundary, page metadata, dependency-safe problem responses, and a fake-store behavior suite.
+- **What was useful:** equal-timestamp traversal tests and tamper tests exposed the need for an exclusive `(timestamp,event_id)` continuation and canonical base64 validation; binding the signature to active filters closes cursor scope drift without putting query data in the token.
+- **Pushback/correction:** the initial implementation treated a changed final base64 character as valid due unused base64 bits and used an assertion that confused `event_id` with Mongo `_id`; both were corrected before review.
+- **Human decision and rationale:** keep Mongo client lifecycle ownership in the later application lifecycle feature, so a missing store is an explicit safe 503 while Feature 008 remains independently testable.
+- **Artifacts/code affected:** `specs/008-event-query-api/`, `src/event_platform/api/routes/query.py`, `src/event_platform/main.py`, `tests/unit/test_event_query_api.py`, `docs/api-contract.md`, and `docs/requirements-traceability.md`.
+- **Validation/review performed:** focused query suite passed 31 tests after adding normalized URL, malformed cursor shape, decode-failure, and bounded filter cases; Ruff format/lint and strict mypy passed. Full unit, integration/failure marker, convergence, staff, and comprehensive review gates remain to be recorded before commit.
+
+### 2026-09-18 — Feature 008 review gate and merge preparation
+
+- **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.
+- **Task:** move the Event Query API through convergence, review, and final quality gates.
+- **AI proposal/contribution:** reviewed the route against all ten functional requirements, checked cursor security and filter scope, and produced the feature-local staff review report.
+- **What was useful:** specialized review caught equivalent source URL cursor scope drift and missing malformed-input regressions; both were corrected before approval.
+- **Pushback/correction:** review evidence was held pending the actual report and final full-suite rerun; task T010 remained open until those artifacts existed.
+- **Human decision and rationale:** approve the feature with one non-blocking suggestion to add a live Mongo route test after lifecycle ownership is implemented; keep the current fake-store test boundary for this feature.
+- **Artifacts/code affected:** `specs/008-event-query-api/reviews/review-20260918-203000.md`, tasks, traceability, and the final gate records.
+- **Validation/review performed:** 31 focused tests passed; full unit suite passed 134 tests with two existing dependency warnings; integration markers skipped 2 without external services; failure marker selection was empty-safe; Ruff format/lint, strict mypy, and diff check passed.

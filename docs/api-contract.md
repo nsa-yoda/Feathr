@@ -20,7 +20,7 @@ Validation failures: 422 or a consistently chosen 400/422 problem response. Queu
 
 ## GET /events
 
-Optional filters: event type, start/end, user ID, exact source URL. Bounded `limit`; opaque `cursor`. Return items + `next_cursor` when more exist.
+Optional filters: event type, inclusive UTC `start`/`end`, user ID, and exact source URL. `limit` defaults to 50 and is bounded to 200. The opaque, signed, versioned cursor contains only the last timestamp and event UUID; its signature is also bound to the active filters. Return canonical Mongo event items, the effective limit, `request_id`, and `next_cursor` when more exist. Mongo is the canonical read source, so results may temporarily precede Elasticsearch projections.
 
 ## GET /events/stats
 

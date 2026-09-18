@@ -10,6 +10,7 @@ from event_platform.api.middleware.request_id import RequestIdMiddleware
 from event_platform.api.problems import register_problem_handlers
 from event_platform.api.routes.events import router as events_router
 from event_platform.api.routes.health import router as health_router
+from event_platform.api.routes.query import router as query_router
 from event_platform.core.logging import configure_logging
 from event_platform.core.settings import ServiceSettings, SettingsStartupError, load_settings
 from event_platform.queue import InProcessQueue
@@ -66,4 +67,5 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     register_problem_handlers(app)
     app.include_router(health_router)
     app.include_router(events_router)
+    app.include_router(query_router)
     return app
