@@ -5,13 +5,14 @@ This file starts as a planning matrix. Codex must update the final two columns w
 | Requirement | Feature(s) | Planned evidence | Implementation evidence | Test evidence |
 |---|---|---|---|---|
 | POST /events validates and enqueues asynchronously | 002, 004, 005 | API spec + queue contract | TBD | TBD |
-| Background worker persists Mongo | 005, 006 | worker/repository | TBD | TBD |
+| Background worker persists Mongo | 005, 006 | worker/repository | TBD; Feature 003 provides `src/event_platform/storage/mongo.py` primitives | Feature 003 unit mapping/error coverage; real-Mongo integration is environment-gated |
 | Retry with backoff | 007 | retry policy | TBD | TBD |
 | GET /events filters | 009 | query service | TBD | TBD |
 | GET /events/stats aggregation | 010 | Mongo pipeline | TBD | TBD |
 | GET /events/search metadata full-text | 011, 012 | ES projection/search | TBD | TBD |
 | GET /events/stats/realtime Redis cache | 014 | cache-aside service | TBD | TBD |
-| Mongo indexes | 003 | index bootstrap | TBD | TBD |
+| Mongo indexes | 003 | index bootstrap | `src/event_platform/storage/mongo.py` `REQUIRED_INDEXES`, `index_models`, and `MongoEventStore.ensure_indexes` | `tests/unit/test_mongo_store.py`; `tests/integration/test_mongo_store_integration.py` |
+| Mongo canonical repository | 003 | async insert/fetch/query/aggregate boundary | `src/event_platform/storage/mongo.py` `MongoEventStore`, typed `EventQuery`, BSON mapping, and safe errors | `tests/unit/test_mongo_store.py` (9 tests); `tests/integration/test_mongo_store_integration.py` (real replica-set pass) |
 | ES mapping/analyzers | 012 | versioned mapping | TBD | TBD |
 | ARCHITECTURE.md standalone | 025 | root architecture | `ARCHITECTURE.md` | doc review |
 | Failure modes | 005, 011, 014, 016, 021, 025 | failure docs/tests | TBD | TBD |

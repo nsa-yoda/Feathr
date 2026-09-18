@@ -79,3 +79,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** keep Feature 002 pure and infrastructure-free so storage, queue, and HTTP mappings remain dependent features; accept only after focused and full quality gates plus staff/comprehensive review.
 - **Artifacts/code affected:** `specs/002-event-domain-contract/`, `src/event_platform/domain/events.py`, `tests/unit/test_event_domain.py`, `docs/requirements-traceability.md`, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** focused domain tests (27), full unit regression, Ruff format/lint, strict mypy, empty-safe integration/failure suites, and review remediation with no remaining blockers.
+
+### 2026-09-18 — MongoDB store and index contract implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** implement Feature 003's canonical async persistence/query boundary and required indexes after Features 001 and 002 were accepted.
+- **AI proposal/contribution:** defined typed query values, BSON mapping, PyMongo Async repository operations, deterministic `IndexModel` definitions, duplicate/dependency error translation, and a real-Mongo integration path gated by `MONGO_URI`.
+- **What was useful:** the boundary tests caught a test-module naming collision and verified the repository never exposes raw driver exception text; lock metadata was updated from PyPI because the host `uv` binary panics in its system-configuration layer.
+- **Pushback/correction:** foundation startup remains Mongo-independent; explicit index bootstrap is the accepted lifecycle boundary until a later feature wires configured clients into the app lifespan.
+- **Human decision and rationale:** store event IDs as lowercase strings for portable API/Mongo/projection identity, keep pagination's opaque cursor encoding in the API layer, and omit metadata/wildcard indexes per ADR-0010.
+- **Artifacts/code affected:** `specs/003-mongodb-store-indexes/`, `src/event_platform/storage/`, `tests/unit/test_mongo_store.py`, `tests/integration/test_mongo_store_integration.py`, `pyproject.toml`, `uv.lock`, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** Feature 003 storage tests pass 9/9 and the real replica-set integration test passes with a temporary MongoDB 8 container; full unit suite, Ruff, and strict mypy are rerun before commit. The host `uv lock --check` remains unavailable because uv panics in the macOS system-configuration layer.
