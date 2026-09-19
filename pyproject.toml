@@ -11,6 +11,7 @@ dependencies = [
   "pydantic-settings>=2.7,<3",
   "pymongo>=4.13,<5",
   "uvicorn>=0.34,<1",
+  "elasticsearch[async]>=8.17,<9",
 ]
 
 [dependency-groups]

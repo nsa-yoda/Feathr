@@ -178,3 +178,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** keep Mongo client lifecycle ownership deferred to the later lifecycle feature; a missing store remains a safe retryable 503, while the direct real-Mongo aggregation path is covered here.
 - **Artifacts/code affected:** `specs/009-mongodb-analytics/reviews/`, `src/event_platform/api/routes/stats.py`, `src/event_platform/storage/mongo.py`, analytics and storage tests, traceability, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** 21 focused analytics tests, 30 analytics/storage tests, 155 full unit tests, 3 real-Mongo integration tests, and empty-safe failure selection passed; Ruff format/lint, strict mypy, and diff checks passed. Review findings: 0 blockers, 0 warnings, 0 suggestions after remediation.
+
+### 2026-09-18 — Mongo change-stream search projection implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify and implement Feature 010's replay-safe Mongo-to-Elasticsearch projection boundary.
+- **AI proposal/contribution:** added explicit async ports for deterministic projection, Elasticsearch alias/target writes, Mongo checkpoints, and insert-only change streams; the coordinator persists checkpoints only after all required writes succeed.
+- **What was useful:** keeping resume tokens inside the checkpoint boundary made invalid-history handling and sensitive-token redaction testable without coupling the API to driver details.
+- **Pushback/correction:** Elasticsearch remains derived and outside ingestion acknowledgement; invalid resume history enters reconciliation-required state instead of silently starting at the current position, and replay uses immutable event IDs.
+- **Human decision and rationale:** Feature 012 owns online rebuild orchestration; Feature 010 exposes an optional target-generation write seam without implementing alias swaps or bulk rebuild.
+- **Artifacts/code affected:** `specs/010-search-projection-changestream/`, `src/event_platform/search/`, `src/event_platform/storage/checkpoints.py`, `src/event_platform/storage/change_stream.py`, tests, dependency lock files, architecture, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** 26 focused projection unit tests and 2 failure tests pass; the real-service integration selection explicitly skips one test without MongoDB/Elasticsearch. The full unit suite passes 181 tests with two existing dependency deprecation warnings; Ruff format/lint, strict mypy, and diff checks pass. Final review report: `specs/010-search-projection-changestream/reviews/review-20260918-211700.md`.
