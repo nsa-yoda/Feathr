@@ -71,6 +71,18 @@ def test_settings_reject_unsupported_values(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("mongo_url", "mongodb://"), ("elasticsearch_url", "http://")],
+)
+def test_settings_reject_hostless_dependency_urls(field: str, value: str) -> None:
+    from event_platform.core.settings import ServiceSettings
+
+    with pytest.raises(ValidationError):
+        ServiceSettings(**{field: value})
+
+
+@pytest.mark.unit
 def test_settings_reject_pathological_rate_refill(monkeypatch: pytest.MonkeyPatch) -> None:
     from event_platform.core.settings import ServiceSettings
 

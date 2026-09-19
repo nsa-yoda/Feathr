@@ -23,6 +23,13 @@ class ServiceSettings(BaseSettings):
     queue_capacity: int = Field(default=1_000, ge=1, le=100_000)
     queue_visibility_timeout: float = Field(default=30.0, ge=0.0, le=86_400.0)
     queue_send_timeout: float = Field(default=1.0, ge=0.0, le=60.0)
+    shutdown_grace_period: float = Field(default=5.0, ge=0.0, le=300.0)
+    worker_concurrency: int = Field(default=1, ge=1, le=100)
+    mongo_url: str | None = Field(default=None, max_length=2_048)
+    mongo_database: str = Field(default="event_platform", min_length=1, max_length=128)
+    mongo_collection: str = Field(default="events", min_length=1, max_length=128)
+    elasticsearch_url: str | None = Field(default=None, max_length=2_048)
+    elasticsearch_alias: str = Field(default="events", min_length=1, max_length=255)
     redis_url: str | None = Field(default=None, max_length=2_048)
     realtime_cache_ttl_seconds: int = Field(default=10, ge=1, le=300)
     realtime_default_window_minutes: int = Field(default=5, ge=1, le=60)
@@ -68,6 +75,28 @@ class ServiceSettings(BaseSettings):
             raise ValueError("unix redis_url must include a socket path")
         if parsed.scheme != "unix" and not parsed.netloc:
             raise ValueError("redis_url must include a host")
+        return value
+
+    @field_validator("mongo_url")
+    @classmethod
+    def validate_mongo_url(cls, value: str | None) -> str | None:
+        if value is not None:
+            parsed = urlparse(value)
+            if parsed.scheme not in {"mongodb", "mongodb+srv"}:
+                raise ValueError("mongo_url must use mongodb or mongodb+srv scheme")
+            if not parsed.netloc:
+                raise ValueError("mongo_url must include a host")
+        return value
+
+    @field_validator("elasticsearch_url")
+    @classmethod
+    def validate_elasticsearch_url(cls, value: str | None) -> str | None:
+        if value is not None:
+            parsed = urlparse(value)
+            if parsed.scheme not in {"http", "https"}:
+                raise ValueError("elasticsearch_url must use http or https scheme")
+            if not parsed.netloc:
+                raise ValueError("elasticsearch_url must include a host")
         return value
 
 

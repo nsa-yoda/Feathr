@@ -45,7 +45,13 @@ def test_lifespan_emits_structured_state_events(caplog: pytest.LogCaptureFixture
         record for record in caplog.records if record.name == "event_platform.lifecycle"
     ]
     events = {record.event for record in lifecycle_records}
-    assert events == {"service.startup", "service.shutdown"}
+    assert events == {
+        "service.startup",
+        "service.shutdown",
+        "lifecycle.running",
+        "lifecycle.draining",
+        "lifecycle.queue_depth",
+    }
     for record in lifecycle_records:
         structured = json.loads(JsonLogFormatter().format(record))
         assert structured["event"] in events

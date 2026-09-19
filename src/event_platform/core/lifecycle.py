@@ -1,0 +1,258 @@
+"""Explicit async lifecycle supervision and deterministic resource cleanup."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Literal
+
+from event_platform.queue import InProcessQueue
+
+LifecycleState = Literal["starting", "running", "draining", "stopped", "failed"]
+TaskFactory = Callable[[asyncio.Event], Awaitable[None]]
+CloseCallback = Callable[[], Awaitable[None]]
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleSnapshot:
+    state: LifecycleState
+    accepting: bool
+    active_tasks: tuple[str, ...]
+    queue_depth: int
+    failure_type: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.queue_depth < 0:
+            raise ValueError("queue_depth must be non-negative")
+        if any(not name or len(name) > 64 for name in self.active_tasks):
+            raise ValueError("active task names are invalid")
+        if self.failure_type is not None and (not self.failure_type or len(self.failure_type) > 64):
+            raise ValueError("failure_type is invalid")
+        if self.state == "stopped" and self.accepting:
+            raise ValueError("stopped lifecycle cannot accept work")
+
+
+class LifecycleSupervisor:
+    """Own named background tasks and close resources after a bounded drain."""
+
+    def __init__(
+        self,
+        queue: InProcessQueue,
+        *,
+        grace_period: float = 5.0,
+        resources: Sequence[tuple[str, CloseCallback]] = (),
+        logger: logging.Logger | None = None,
+    ) -> None:
+        if grace_period < 0:
+            raise ValueError("grace_period must be non-negative")
+        self.queue = queue
+        self.grace_period = grace_period
+        self._resources = list(resources)
+        self._logger = logger or logging.getLogger("event_platform.lifecycle")
+        self._stop_event = asyncio.Event()
+        self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._state: LifecycleState = "starting"
+        self._failure_type: str | None = None
+        self._shutdown_complete = False
+        self._shutdown_lock = asyncio.Lock()
+
+    @property
+    def stop_event(self) -> asyncio.Event:
+        return self._stop_event
+
+    @property
+    def state(self) -> LifecycleState:
+        return self._state
+
+    @property
+    def failure_type(self) -> str | None:
+        return self._failure_type
+
+    def add_resource(self, name: str, close: CloseCallback) -> None:
+        if not name or len(name) > 64:
+            raise ValueError("resource name is invalid")
+        if self._shutdown_complete:
+            raise RuntimeError("lifecycle is already shut down")
+        self._resources.append((name, close))
+
+    async def start(self, factories: Mapping[str, TaskFactory] | None = None) -> None:
+        if self._state != "starting":
+            raise RuntimeError("lifecycle can only start once")
+        factory_items = tuple((factories or {}).items())
+        names = [name for name, _ in factory_items]
+        if any(not name or len(name) > 64 for name in names):
+            raise ValueError("task name is invalid")
+        if len(names) != len(set(names)):
+            raise ValueError("task name is duplicated")
+        for name, factory in factory_items:
+            self._tasks[name] = asyncio.create_task(
+                self._run_task(name, factory), name=f"event-platform:{name}"
+            )
+        self._state = "running"
+        self._logger.info(
+            "lifecycle running",
+            extra={"event": "lifecycle.running", "state": self._state},
+        )
+
+    def task_healthy(self, name: str) -> bool:
+        task = self._tasks.get(name)
+        return self._state == "running" and task is not None and not task.done()
+
+    def has_task(self, name: str) -> bool:
+        return name in self._tasks
+
+    def all_tasks_healthy(self) -> bool:
+        """Return false when any supervised task has terminated unexpectedly."""
+
+        return self._state == "running" and all(not task.done() for task in self._tasks.values())
+
+    def snapshot(self, *, queue_depth: int = 0) -> LifecycleSnapshot:
+        active = tuple(sorted(name for name, task in self._tasks.items() if not task.done()))
+        return LifecycleSnapshot(
+            state=self._state,
+            accepting=self.queue.accepting,
+            active_tasks=active,
+            queue_depth=max(0, queue_depth),
+            failure_type=self._failure_type,
+        )
+
+    async def wait(self) -> None:
+        """Wait for supervised tasks to finish, propagating their terminal error."""
+
+        if self._tasks:
+            await asyncio.gather(*self._tasks.values())
+
+    async def request_shutdown(self, reason: str = "lifespan") -> None:
+        if self._state in {"draining", "stopped"}:
+            return
+        safe_reason = (
+            reason if reason in {"lifespan", "signal", "startup_failure", "test"} else "unknown"
+        )
+        self.queue.stop_accepting()
+        await self.queue.wake()
+        if self._state != "failed":
+            self._state = "draining"
+        self._stop_event.set()
+        self._logger.info(
+            "lifecycle draining",
+            extra={
+                "event": "lifecycle.draining",
+                "state": self._state,
+                "reason_code": safe_reason,
+            },
+        )
+
+    async def shutdown(self) -> LifecycleSnapshot:
+        async with self._shutdown_lock:
+            return await self._shutdown()
+
+    async def _shutdown(self) -> LifecycleSnapshot:
+        if self._shutdown_complete:
+            return await self._snapshot_with_queue()
+        await self.request_shutdown()
+        task_values = tuple(self._tasks.values())
+        if task_values:
+            _, pending = await asyncio.wait(task_values, timeout=self.grace_period)
+            self._observe_tasks(task_values)
+            if pending:
+                self._logger.warning(
+                    "lifecycle drain deadline exceeded",
+                    extra={"event": "lifecycle.drain_timeout", "state": self._state},
+                )
+                for task in pending:
+                    if not task.done():
+                        task.cancel()
+                _, still_pending = await asyncio.wait(
+                    pending,
+                    timeout=max(0.05, min(self.grace_period, 1.0)),
+                )
+                self._observe_tasks(task_values)
+                if still_pending:
+                    self._logger.error(
+                        "lifecycle task cancellation deadline exceeded",
+                        extra={
+                            "event": "lifecycle.task_cancel_timeout",
+                            "state": self._state,
+                            "task_count": len(still_pending),
+                        },
+                    )
+        snapshot = await self._snapshot_with_queue()
+        self._logger.info(
+            "lifecycle queue depth before close",
+            extra={
+                "event": "lifecycle.queue_depth",
+                "state": self._state,
+                "queue_depth": snapshot.queue_depth,
+            },
+        )
+        await self._close_resources()
+        if self._state != "failed":
+            self._state = "stopped"
+        self._shutdown_complete = True
+        return await self._snapshot_with_queue()
+
+    @staticmethod
+    def _observe_tasks(tasks: Sequence[asyncio.Task[None]]) -> None:
+        for task in tasks:
+            if not task.done():
+                continue
+            try:
+                task.exception()
+            except asyncio.CancelledError:
+                pass
+
+    async def _snapshot_with_queue(self) -> LifecycleSnapshot:
+        stats = await self.queue.stats()
+        return self.snapshot(queue_depth=stats.depth)
+
+    async def _close_resources(self) -> None:
+        for name, close in self._resources:
+            try:
+                await close()
+            except Exception as error:
+                if self._failure_type is None:
+                    self._failure_type = "ResourceCloseError"
+                self._state = "failed"
+                self._logger.error(
+                    "lifecycle resource close failed",
+                    extra={
+                        "event": "lifecycle.resource_close_failed",
+                        "resource": name,
+                        "error_type": type(error).__name__,
+                    },
+                )
+
+    async def _run_task(self, name: str, factory: TaskFactory) -> None:
+        try:
+            await factory(self._stop_event)
+            if not self._stop_event.is_set():
+                error = RuntimeError("supervised task exited unexpectedly")
+                await self._mark_failed(name, error)
+                raise error
+        except asyncio.CancelledError:
+            if self._stop_event.is_set():
+                raise
+            error = RuntimeError("supervised task cancelled unexpectedly")
+            await self._mark_failed(name, error)
+            raise error from None
+        except Exception as error:
+            await self._mark_failed(name, error)
+            raise
+
+    async def _mark_failed(self, name: str, error: BaseException) -> None:
+        self._state = "failed"
+        self._failure_type = type(error).__name__
+        self._stop_event.set()
+        self.queue.stop_accepting()
+        await self.queue.wake()
+        self._logger.error(
+            "supervised lifecycle task failed",
+            extra={
+                "event": "lifecycle.supervision_failure",
+                "task": name,
+                "error_type": type(error).__name__,
+                "state": "failed",
+            },
+        )

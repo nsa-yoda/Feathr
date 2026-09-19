@@ -289,6 +289,19 @@ structured degraded event and continue with the conservative local policy.
 
 The service must not trust `X-Forwarded-For` unless configured trusted proxy hops make that header authoritative.
 
+### Lifecycle ownership and shutdown
+
+Feature 016 uses `src/event_platform/core/lifecycle.py` as the single owner of
+background tasks and dependency close callbacks. Startup creates only configured
+Mongo, Elasticsearch, and Redis clients; the persistence worker is started when
+the Mongo store is available. Shutdown first stops queue admission, signals
+managed workers/projectors, drains for the bounded grace period, cancels any
+remaining tasks, records in-memory queue depth, and then closes queue, Redis,
+Elasticsearch, and Mongo in that order. A task that exits unexpectedly moves the
+supervisor to `failed`, which keeps readiness unhealthy. The in-memory queue can
+still lose visible messages on process exit; the depth log makes that limitation
+explicit for operators.
+
 ## 14. Failure modes
 
 ### MongoDB unavailable

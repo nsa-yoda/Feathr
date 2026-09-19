@@ -115,6 +115,7 @@ class InProcessQueue:
         self._condition = asyncio.Condition()
         self._messages: list[_Message] = []
         self._dlq: list[DeadLetter] = []
+        self._accepting = True
         self._closed = False
 
     async def send(
@@ -132,6 +133,8 @@ class InProcessQueue:
         async with self._condition:
             while len(self._messages) >= self._capacity:
                 self._ensure_open()
+                if not self._accepting:
+                    raise QueueClosed("queue is draining and no longer accepts sends")
                 remaining = deadline - self._clock()
                 if remaining <= 0:
                     raise QueueFull("queue capacity unavailable before send timeout")
@@ -140,6 +143,8 @@ class InProcessQueue:
                 except TimeoutError:
                     raise QueueFull("queue capacity unavailable before send timeout") from None
             self._ensure_open()
+            if not self._accepting:
+                raise QueueClosed("queue is draining and no longer accepts sends")
             identifier = message_id or str(uuid4())
             self._messages.append(
                 _Message(
@@ -286,6 +291,23 @@ class InProcessQueue:
 
         return self._closed
 
+    @property
+    def accepting(self) -> bool:
+        """Whether new messages may be admitted."""
+
+        return self._accepting and not self._closed
+
+    def stop_accepting(self) -> None:
+        """Stop new sends while allowing current deliveries to drain."""
+
+        self._accepting = False
+        try:
+            asyncio.get_running_loop().create_task(self.wake())
+        except RuntimeError:
+            # A queue can be configured before an event loop exists. The
+            # lifecycle supervisor awaits wake() when shutdown is requested.
+            pass
+
     async def wake(self) -> None:
         """Wake timed waiters after an injected clock advances."""
 
@@ -294,6 +316,7 @@ class InProcessQueue:
 
     async def close(self) -> None:
         async with self._condition:
+            self._accepting = False
             self._closed = True
             self._condition.notify_all()
 

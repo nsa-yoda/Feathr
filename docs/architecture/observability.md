@@ -39,3 +39,9 @@ The HTTP health routes are `/health/live`, `/health/ready`, and
 `/health/components`. Readiness requires Mongo, queue, and persistence-worker
 probes to be healthy. Elasticsearch and Redis can be degraded while readiness
 remains true because they are derived services.
+
+Lifecycle supervision feeds the persistence-worker health probe. A failed
+managed task makes readiness unhealthy; deliberate cancellation during bounded
+shutdown is treated as normal. Queue depth is recorded before the in-memory
+queue closes, and dependency clients are closed in queue, Redis, Elasticsearch,
+Mongo order.
