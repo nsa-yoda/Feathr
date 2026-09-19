@@ -61,10 +61,15 @@ def test_compose_runtime_defaults_and_resources_are_explicit() -> None:
         "EVENT_PLATFORM_ELASTICSEARCH_URL: ${EVENT_PLATFORM_ELASTICSEARCH_URL:-http://elasticsearch:9200}"
         in app
     )
+    assert (
+        "EVENT_PLATFORM_ELASTICSEARCH_ALIAS: ${EVENT_PLATFORM_ELASTICSEARCH_ALIAS:-events-search}"
+        in app
+    )
     assert "EVENT_PLATFORM_REDIS_URL: ${EVENT_PLATFORM_REDIS_URL:-redis://redis:6379/0}" in app
     assert "mem_limit:" in app and "cpus:" in app
     assert "EVENT_PLATFORM_MONGO_URL=mongodb://mongo:27017/?replicaSet=rs0" in env
     assert "EVENT_PLATFORM_ELASTICSEARCH_URL=http://elasticsearch:9200" in env
+    assert "EVENT_PLATFORM_ELASTICSEARCH_ALIAS=events-search" in env
     assert "EVENT_PLATFORM_REDIS_URL=redis://redis:6379/0" in env
     assert "REDIS_PASSWORD=" in env
     assert "docker compose down -v" in (ROOT / "README.md").read_text()
@@ -175,7 +180,7 @@ def test_smoke_success_and_unavailable_api_paths_are_executable_without_docker(
         'if [[ "$method" == POST ]]; then printf "{\\"event_id\\":\\"event-1\\"}" > "$out"; echo 202\n'  # noqa: E501
         'elif [[ "$url" == */events/search* ]]; then printf "{\\"items\\":[{\\"event_id\\":\\"event-1\\"}]}" > "$out"; echo 200\n'  # noqa: E501
         'elif [[ "$url" == */events?* ]]; then printf "{\\"items\\":[{\\"event_id\\":\\"event-1\\"}]}" > "$out"; echo 200\n'  # noqa: E501
-        'elif [[ "$url" == */events/stats/realtime* ]]; then printf "{\\"points\\":[{\\"event_type\\":\\"smoke.event\\",\\"count\\":1}]}" > "$out"; echo 200\n'  # noqa: E501
+        'elif [[ "$url" == */events/stats/realtime* ]]; then printf "{\\"by_event_type\\":{\\"smoke.event\\":1}}" > "$out"; echo 200\n'  # noqa: E501
         'else printf "{\\"status\\":\\"alive\\"}" > "$out"; echo 200; fi\n'
     )
     for command in bin_dir.iterdir():
@@ -195,7 +200,9 @@ def test_smoke_success_and_unavailable_api_paths_are_executable_without_docker(
     )
     assert success.returncode == 0, success.stderr
     assert "smoke passed for event event-1" in success.stdout
-    assert "Idempotency-Key: smoke-" in curl_log.read_text()
+    curl_requests = curl_log.read_text()
+    assert "Idempotency-Key: smoke-" in curl_requests
+    assert "/events/search?q=compose-smoke&event_type=smoke.event&limit=50" in curl_requests
 
     env["SMOKE_MODE"] = "fail"
     failure = subprocess.run(

@@ -106,10 +106,10 @@ poll_json() {
 
 poll_json "$query_url" query 'smoke canonical query deadline exceeded' \
   --arg id "$event_id" '.items | any(.[]; .event_id == $id)'
-poll_json "$base_url/events/search?q=smoke.event&limit=50" search \
+poll_json "$base_url/events/search?q=compose-smoke&event_type=smoke.event&limit=50" search \
   'smoke search projection deadline exceeded' --arg id "$event_id" \
   '.items | any(.[]; .event_id == $id)'
 poll_json "$base_url/events/stats/realtime?window_minutes=5" stats \
   'smoke realtime statistics deadline exceeded' \
-  '.points | any(.[]; .event_type == "smoke.event" and .count > 0)'
+  '.by_event_type["smoke.event"] > 0'
 echo "smoke passed for event ${event_id}"

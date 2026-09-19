@@ -196,6 +196,11 @@ Consequences:
 
 Feature 010 implements this boundary in `src/event_platform/search/projection.py`, with the official async Elasticsearch adapter in `search/elasticsearch.py`, Mongo checkpoint persistence in `storage/checkpoints.py`, and an insert-only async source in `storage/change_stream.py`. The coordinator writes the stable alias and optional rebuild target before saving the resume token. It reports bounded state and lag values, retains the checkpoint across transient failures, and enters `reconciliation_required` for invalid resume history. Resume tokens and raw dependency details are never exposed in status or logs.
 
+On first deployment, the application creates the mapped `events-v000001`
+generation and attaches the configured stable alias when no generation exists.
+This bootstrap only initializes derived search state; Mongo remains canonical
+and later generation replacement remains owned by the online rebuild flow.
+
 ### Projection checkpointing
 
 The projector persists a Change Stream resume token/checkpoint **after** the corresponding ES write has succeeded. If the process crashes after ES indexing but before checkpoint persistence, the change may replay; indexing by immutable `event_id` makes that replay safe.

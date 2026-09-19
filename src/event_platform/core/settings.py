@@ -33,7 +33,7 @@ class ServiceSettings(BaseSettings):
     mongo_database: str = Field(default="event_platform", min_length=1, max_length=128)
     mongo_collection: str = Field(default="events", min_length=1, max_length=128)
     elasticsearch_url: str | None = Field(default=None, max_length=2_048)
-    elasticsearch_alias: str = Field(default="events", min_length=1, max_length=255)
+    elasticsearch_alias: str = Field(default="events-search", min_length=1, max_length=255)
     redis_url: str | None = Field(default=None, max_length=2_048)
     realtime_cache_ttl_seconds: int = Field(default=10, ge=1, le=300)
     realtime_default_window_minutes: int = Field(default=5, ge=1, le=60)

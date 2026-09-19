@@ -35,6 +35,7 @@ from event_platform.observability.metrics import MetricsRegistry
 from event_platform.queue import InProcessQueue
 from event_platform.rate_limit import LocalTokenBucket, RedisTokenBucket, RouteClass, RoutePolicy
 from event_platform.rate_limit.service import RateLimiter
+from event_platform.search.bootstrap import ensure_search_alias
 from event_platform.search.elasticsearch import ElasticsearchProjectionWriter
 from event_platform.search.elasticsearch import create_client as create_elasticsearch_client
 from event_platform.search.projection import SearchProjector
@@ -211,6 +212,21 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     cast(SearchClient, elasticsearch_client),
                     alias=app.state.settings.elasticsearch_alias,
                 )
+                try:
+                    await ensure_search_alias(
+                        elasticsearch_client, app.state.settings.elasticsearch_alias
+                    )
+                except Exception as error:
+                    logger.warning(
+                        "search alias bootstrap degraded",
+                        extra={
+                            "event": "search.bootstrap_failed",
+                            "component": "elasticsearch",
+                            "error_type": type(error).__name__,
+                            "classification": "derived_state_bootstrap",
+                            "state": "degraded",
+                        },
+                    )
             else:
                 app.state.elasticsearch_client = None
                 app.state.search_service = injected_search_service

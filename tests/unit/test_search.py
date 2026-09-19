@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.main import create_app
+from event_platform.search.mapping import metadata_text
 from event_platform.search.search import (
     ElasticsearchSearchService,
     SearchDependencyError,
@@ -51,7 +52,10 @@ class FakeClient:
         start = 0 if "search_after" not in body else 1
         hits = [
             {
-                "_source": event.model_dump(mode="json"),
+                "_source": {
+                    **event.model_dump(mode="json"),
+                    "metadata_text": metadata_text(event.metadata),
+                },
                 "sort": [event.timestamp.isoformat(), str(event.event_id)],
             }
             for event in self.events[start : start + size]

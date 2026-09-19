@@ -19,6 +19,7 @@ def test_settings_use_safe_foundation_defaults(
     settings = ServiceSettings()
     assert settings.env == "local"
     assert settings.log_level == "INFO"
+    assert settings.elasticsearch_alias == "events-search"
 
 
 @pytest.mark.unit

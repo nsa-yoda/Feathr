@@ -1,6 +1,6 @@
 # Distributed Event Processing Platform
 
-> **Current state:** Features 001-025 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, and executable Postman reviewer suite plus the reviewer operations UI. Static Compose/Postman/UI validation is complete; live startup, smoke, and Newman/browser execution require their runtime tools; see `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
+> **Current state:** Features 001-025 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, and executable Postman reviewer suite plus the reviewer operations UI. Static gates pass, and the clean Compose smoke plus the Newman collection pass on the local Colima Docker context; browser, online rebuild, and hosted CI evidence remain environment-specific gates. See `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
 
 A production-oriented event ingestion, processing, search, analytics, caching, and reviewer-demo platform built with FastAPI, MongoDB, Elasticsearch, Redis, and an assessment-mandated in-process SQS-style queue.
 
@@ -125,7 +125,9 @@ path described in `ARCHITECTURE.md` and `docs/operations/sqs-migration.md`.
 Import the v2.1 collection and local environment from `postman/`, then run the
 numbered folders in order. The collection captures an event ID and uses bounded
 polling for canonical query and Elasticsearch search. Newman users can run
-`make postman`; the wrapper exits clearly when Newman or the API is unavailable.
+`make postman`; the wrapper exits clearly when Newman or the API is unavailable. In
+the recorded local live run, the same collection passed through
+`npx --yes newman` because Newman was not installed globally.
 
 Feature 025 reconciles the final architecture, traceability, and AI workflow documentation. The current reviewer URLs are:
 
@@ -176,9 +178,9 @@ The local static gates are `make format-check`, `make lint`, `make typecheck`,
 `make test-unit`, `make test-integration`, and `make test-failure`. Unit and
 failure selections run without external services; integration tests collect
 real-service lifecycles and explicitly skip when MongoDB, Elasticsearch, or
-Redis endpoints are unavailable. Compose config is static evidence, while
-clean Compose smoke, Newman/Postman, browser UI, online rebuild, and hosted CI
-are live gates that must be run in an environment providing those dependencies.
+Redis endpoints are unavailable. The recorded local Colima run passed clean
+Compose smoke and all 45 Newman/Postman assertions; browser UI, online rebuild,
+and hosted CI remain live gates that require their respective environments.
 
 ## Integration lifecycles
 

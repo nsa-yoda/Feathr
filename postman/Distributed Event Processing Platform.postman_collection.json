@@ -304,7 +304,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/events/search?q=postman.demo&limit=50"
+            "url": "{{baseUrl}}/events/search?q=postman-reviewer-suite&event_type=postman.demo&limit=50"
           },
           "event": [
             {
@@ -317,7 +317,7 @@
                   "const base = pm.environment.get(\"baseUrl\"); const expected = pm.environment.get(\"eventId\");",
                   "function poll() {",
                   "  if (Date.now() >= deadline) { pm.test(\"search event appears before deadline\", () => pm.expect.fail(\"search polling deadline exceeded\")); return; }",
-                  "  pm.sendRequest({url: `${base}/events/search?q=postman.demo&limit=50`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000)}, (error, response) => {",
+                  "  pm.sendRequest({url: `${base}/events/search?q=postman-reviewer-suite&event_type=postman.demo&limit=50`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000)}, (error, response) => {",
                   "  if (!error && response.code === 503) { const body = response.json(); pm.test(\"search degraded response is a problem\", () => { pm.expect(body.status).to.eql(503); pm.expect(body.detail).to.be.a(\"string\"); pm.expect(body.error_code).to.be.a(\"string\"); pm.expect(body.request_id).to.be.a(\"string\"); }); return; }",
                   "    if (!error && response.code === 200) { const body = response.json(); const found = (body.items || []).some(item => item.event_id === expected); if (found) { pm.test(\"search contains captured event\", () => pm.expect(found).to.eql(true)); return; } }",
                   "    setTimeout(poll, interval);",
@@ -480,12 +480,12 @@
                 "exec": [
                   "const burst = Math.max(Number(pm.environment.get(\"rateLimitBurst\") || 180), 121);",
                   "const deadline = Date.now() + Number(pm.environment.get(\"pollDeadlineMs\") || 30000);",
-                  "let count = 0; let got429 = false;",
+                  "let count = 0; let got429 = false; let retryAfterMs = 0;",
                   "function sendNext() {",
                   "  if (Date.now() >= deadline) { pm.test(\"rate-limit burst completes before deadline\", () => pm.expect.fail(\"429 burst deadline exceeded\")); return; }",
-                  "  if (count >= burst) { pm.test(\"rate-limit burst observes 429\", () => pm.expect(got429).to.eql(true)); return; }",
+                  "  if (count >= burst) { setTimeout(() => pm.test(\"rate-limit burst observes 429\", () => pm.expect(got429).to.eql(true)), retryAfterMs + 100); return; }",
                   "  pm.sendRequest({url: `${pm.environment.get(\"baseUrl\")}/events?limit=1`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000)}, (error, response) => {",
-                  "    if (response.code === 429) { got429 = true; pm.expect(Number(response.headers.get(\"Retry-After\"))).to.be.greaterThan(0); }",
+                  "    if (response.code === 429) { got429 = true; retryAfterMs = Math.max(retryAfterMs, Number(response.headers.get(\"Retry-After\")) * 1000); pm.expect(Number(response.headers.get(\"Retry-After\"))).to.be.greaterThan(0); }",
                   "    count += 1; sendNext();",
                   "  });",
                   "}",
@@ -505,7 +505,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/events/search?q=postman.demo&limit=10"
+            "url": "{{baseUrl}}/events/search?q=postman-reviewer-suite&event_type=postman.demo&limit=10"
           },
           "event": [
             {
@@ -579,7 +579,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/events/search?q=postman.demo&limit=50"
+            "url": "{{baseUrl}}/events/search?q=postman-reviewer-suite&event_type=postman.demo&limit=50"
           },
           "event": [
             {

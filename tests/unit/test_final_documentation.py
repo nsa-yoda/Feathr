@@ -128,8 +128,8 @@ def test_final_audit_rejects_unclassified_runtime_guarantees() -> None:
 def test_final_checklist_records_static_completion_and_live_conditions() -> None:
     text = CHECKLIST.read_text()
     assert "## Evidence conditions" in text
-    assert "Newman unavailable locally" in text
-    assert "Docker daemon unavailable locally" in text
+    assert "Postman demo flow passes" in text
+    assert "smoke test passes from clean stack" in text
     assert "- [x] README and ARCHITECTURE match code" in text
     assert "no positive exactly-once guarantee" in text
     assert "11 explicit service-gated skips" in text

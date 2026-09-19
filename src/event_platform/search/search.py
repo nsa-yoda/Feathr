@@ -214,7 +214,12 @@ class ElasticsearchSearchService:
                     for value in hit_sort
                 ):
                     raise ValueError
-                events.append(CanonicalEvent.model_validate(source))
+                # Search documents include derived projection fields that are not part of
+                # the canonical event contract. Remove only the known derived field and
+                # keep strict validation for every other unexpected response field.
+                canonical_source = dict(source)
+                canonical_source.pop("metadata_text", None)
+                events.append(CanonicalEvent.model_validate(canonical_source))
                 sort_values_by_hit.append(list(hit_sort))
             page_items = events[: query.limit]
             next_cursor = (

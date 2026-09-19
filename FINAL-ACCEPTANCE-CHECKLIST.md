@@ -34,8 +34,8 @@
 - [x] Mongo replica set initializes automatically
 - [x] UI is included and useful
 - [x] Postman collection/environment import cleanly
-- [ ] Postman demo flow passes (Newman unavailable locally; run on a Newman-capable host)
-- [ ] smoke test passes from clean stack (Docker daemon unavailable locally; run on a daemon-capable host)
+- [x] Postman demo flow passes (205 requests and 45 assertions via ephemeral Newman on Colima)
+- [x] smoke test passes from clean stack (Colima Docker context)
 
 ## Quality
 
@@ -52,4 +52,4 @@
 
 ## Evidence conditions
 
-Static, unit, failure, and contract evidence is checked in the feature reports and `CODEX_WORK.LOG`. Integration selection currently records 11 explicit skips because the external endpoints are unavailable; this is not service-backed integration evidence. The online rebuild, Postman demo, and clean Compose smoke conditions remain intentionally unchecked until the required services/tools are available.
+Static, unit, failure, and contract evidence is checked in the feature reports and `CODEX_WORK.LOG`. Integration selection currently records 11 explicit skips because the test runner is not configured with direct external endpoint variables; this is not service-backed integration evidence. Clean Compose smoke and the Postman demo are verified on the local Colima context. The online rebuild remains unchecked until its live-write and atomic-alias-swap scenario is run.
