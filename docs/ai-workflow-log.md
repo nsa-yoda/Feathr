@@ -233,3 +233,13 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** health and metrics are exempt by default, route keys use templates and hashed identities, and local state has both idle TTL and a hard entry cap.
 - **Artifacts/code affected:** `specs/014-rate-limiting/`, `src/event_platform/rate_limit/`, rate-limit middleware/settings/lifespan wiring, tests, architecture, API contract, traceability, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** Feature 014 coverage passes 7 unit tests, 6 failure tests, and one explicit Redis integration skip without configured services; the full repository gates pass 240 unit tests, 16 failure tests, and 8 explicit integration skips. Ruff format/lint, strict mypy, and git diff checks pass. Staff/code/errors/types review findings are closed; manual comments/tests/simplification review found no remaining issues. Final report: `specs/014-rate-limiting/reviews/review-20260918-220949.md`.
+
+### 2026-09-18 — Observability and health implementation
+
+- **Tool/model:** Codex with Spec Kit workflows, Serena MCP, and specialized code/errors/types review agents.
+- **Task:** specify and implement Feature 015's structured runtime observability, safe request and operation correlation, low-cardinality Prometheus metrics, and degraded health semantics.
+- **AI proposal/contribution:** added typed fixed-key health snapshots, injectable component probes, bounded metric families and route normalization, canonical inbound UUID acceptance, operation IDs on responses and queue deliveries, and safe normalized completion/access logs.
+- **What was useful:** review-driven corrections made readiness fail closed for absent Mongo/worker state, bounded Redis probes, exact health model invariants, fixed metric family validation, explicit lifecycle registry access, and operation propagation into worker logs.
+- **Pushback/correction:** Redis and Elasticsearch remain derived dependencies; their degraded state is visible without blocking core readiness. Raw request paths and arbitrary metric labels were rejected at the boundary.
+- **Artifacts/code affected:** `specs/015-observability-health/`, observability registries/routes, request and queue middleware, lifecycle wiring, tests, API/architecture documentation, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** focused observability/request/queue/worker/ingestion selection passes 29 tests; full unit suite passes 247 tests with two existing dependency warnings; failure suite passes 16; integration markers skip 8 without external services; Ruff format/lint, strict mypy, and diff checks pass. Final review report: `specs/015-observability-health/reviews/review-20260919-040000.md`.

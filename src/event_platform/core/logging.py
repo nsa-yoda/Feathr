@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+from event_platform.observability.metrics import normalize_route
+
 _HANDLER_MARKER = "_event_platform_json_handler"
 _LOGGERS_TO_FORMAT = ("uvicorn", "uvicorn.error", "uvicorn.access")
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -58,6 +60,9 @@ _EXTRA_FIELDS = (
     "route_class",
     "outcome",
     "backend",
+    "operation_id",
+    "component",
+    "state",
 )
 
 
@@ -92,7 +97,7 @@ class JsonAccessLogFormatter(JsonLogFormatter):
             message,
         )
         if match is not None:
-            path = urlsplit(match.group("target")).path
+            path = normalize_route(urlsplit(match.group("target")).path)
             record = logging.makeLogRecord(
                 {
                     **record.__dict__,

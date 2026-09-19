@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, cast
 from uuid import uuid4
 
 DLQClassification = Literal["transient", "permanent", "unknown"]
@@ -49,6 +49,7 @@ class Delivery:
     receipt_handle: str
     receive_count: int
     enqueued_at: float
+    operation_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +80,7 @@ class _Message:
     visibility_deadline: float = 0.0
     receive_count: int = 0
     receipt_handle: str | None = None
+    operation_id: str | None = None
 
 
 def _freeze(value: object) -> object:
@@ -115,9 +117,17 @@ class InProcessQueue:
         self._dlq: list[DeadLetter] = []
         self._closed = False
 
-    async def send(self, body: Mapping[str, object], *, message_id: str | None = None) -> str:
+    async def send(
+        self,
+        body: Mapping[str, object],
+        *,
+        message_id: str | None = None,
+        operation_id: str | None = None,
+    ) -> str:
         if message_id is not None and not _is_safe_identifier(message_id):
             raise ValueError("message_id must be 1-256 printable ASCII characters")
+        if operation_id is not None and not _is_safe_identifier(operation_id):
+            raise ValueError("operation_id must be 1-256 printable ASCII characters")
         deadline = self._clock() + self._send_timeout
         async with self._condition:
             while len(self._messages) >= self._capacity:
@@ -132,7 +142,12 @@ class InProcessQueue:
             self._ensure_open()
             identifier = message_id or str(uuid4())
             self._messages.append(
-                _Message(identifier, _freeze(body), self._clock())  # type: ignore[arg-type]
+                _Message(
+                    identifier,
+                    cast(Mapping[str, object], _freeze(body)),
+                    self._clock(),
+                    operation_id=operation_id,
+                )
             )
             self._condition.notify_all()
             return identifier
@@ -156,6 +171,7 @@ class InProcessQueue:
                             message.receipt_handle,
                             message.receive_count,
                             message.enqueued_at,
+                            message.operation_id,
                         )
                 remaining = deadline - now
                 if remaining <= 0:
@@ -203,6 +219,7 @@ class InProcessQueue:
                 message.receipt_handle or "",
                 message.receive_count,
                 message.enqueued_at,
+                message.operation_id,
             )
             self._dlq.append(
                 DeadLetter(delivery, classification, reason_code, message.receive_count)
@@ -227,6 +244,7 @@ class InProcessQueue:
                     message.receipt_handle or "",
                     message.receive_count,
                     message.enqueued_at,
+                    message.operation_id,
                 )
                 self._dlq.append(
                     DeadLetter(delivery, "unknown", "max_receive_count", message.receive_count)

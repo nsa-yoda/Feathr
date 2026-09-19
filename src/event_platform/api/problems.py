@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 
+from event_platform.observability.metrics import normalize_route
+
 logger = logging.getLogger(__name__)
 _MAX_PROBLEM_TEXT_LENGTH = 2048
 
@@ -107,7 +109,7 @@ async def handle_unexpected_error(request: Request, error: Exception) -> JSONRes
             "request_id": request_id,
             "error_type": type(error).__name__,
             "method": request.method,
-            "path": request.url.path,
+            "path": normalize_route(request.url.path),
             "status": 500,
         },
     )

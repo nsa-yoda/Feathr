@@ -45,3 +45,21 @@ def test_successful_responses_include_server_request_id() -> None:
     assert openapi.status_code == 200
     assert live_id != "attacker-controlled"
     assert live_id != openapi_id
+
+
+def test_valid_bounded_inbound_request_id_is_preserved() -> None:
+    supplied = "12345678-1234-4234-8234-123456789abc"
+    with TestClient(create_app()) as client:
+        response = client.get("/health/live", headers={"X-Request-ID": supplied})
+
+    assert response.headers["x-request-id"] == supplied
+    assert response.headers["x-operation-id"] != supplied
+
+
+def test_noncanonical_uuid_request_id_is_replaced() -> None:
+    with TestClient(create_app()) as client:
+        response = client.get(
+            "/health/live", headers={"X-Request-ID": "12345678-1234-4234-8234-123456789ABC"}
+        )
+
+    assert response.headers["x-request-id"] != "12345678-1234-4234-8234-123456789ABC"

@@ -1,5 +1,6 @@
 """FastAPI application factory and lifespan ownership."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -19,6 +20,8 @@ from event_platform.api.routes.stats import router as stats_router
 from event_platform.cache.realtime import RedisCache
 from event_platform.core.logging import configure_logging
 from event_platform.core.settings import ServiceSettings, SettingsStartupError, load_settings
+from event_platform.observability.health import HealthRegistry
+from event_platform.observability.metrics import MetricsRegistry
 from event_platform.queue import InProcessQueue
 from event_platform.rate_limit import LocalTokenBucket, RedisTokenBucket, RouteClass, RoutePolicy
 from event_platform.rate_limit.service import RateLimiter
@@ -52,6 +55,39 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 capacity=app.state.settings.queue_capacity,
                 visibility_timeout=app.state.settings.queue_visibility_timeout,
                 send_timeout=app.state.settings.queue_send_timeout,
+            )
+            app.state.metrics = MetricsRegistry()
+            app.state.health = HealthRegistry(app.state.metrics)
+
+            async def mongo_probe() -> bool:
+                return bool(getattr(app.state, "mongo_ready", False))
+
+            async def redis_probe() -> str | bool:
+                if redis_client is None:
+                    return "degraded"
+                try:
+                    await asyncio.wait_for(redis_client.ping(), timeout=0.25)
+                except Exception as error:
+                    logger.warning(
+                        "redis health probe degraded",
+                        extra={
+                            "event": "health.redis_degraded",
+                            "component": "redis",
+                            "error_type": type(error).__name__,
+                            "state": "degraded",
+                        },
+                    )
+                    return "degraded"
+                return True
+
+            app.state.health.set_probe("mongo", mongo_probe)
+            app.state.health.set_probe("redis", redis_probe)
+            app.state.health.set_probe("elasticsearch", lambda: "degraded")
+            app.state.health.set_probe("search_projector", lambda: "degraded")
+            app.state.health.set_probe("queue", lambda: not app.state.queue.closed)
+            app.state.health.set_probe(
+                "persistence_worker",
+                lambda: bool(getattr(app.state, "persistence_worker_ready", False)),
             )
             if app.state.settings.redis_url:
                 from redis.asyncio import Redis
@@ -94,7 +130,9 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 ),
                 redis_bucket=RedisTokenBucket(redis_client) if redis_client is not None else None,
                 trusted_proxy_hops=settings_value.rate_limit_trusted_proxy_hops,
+                metrics=app.state.metrics,
             )
+            app.state.metrics.inc("event_platform_lifecycle_events_total", {"outcome": "startup"})
         except (TypeError, ValueError) as error:
             if redis_client is not None:
                 await redis_client.aclose()
@@ -124,9 +162,15 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             if redis_client is not None:
                 await redis_client.aclose()
             logger.info("service shutdown complete", extra={"event": "service.shutdown"})
+            if hasattr(app.state, "metrics"):
+                app.state.metrics.inc(
+                    "event_platform_lifecycle_events_total", {"outcome": "shutdown"}
+                )
             del app.state.settings
             del app.state.queue
             del app.state.rate_limiter
+            del app.state.metrics
+            del app.state.health
 
     app = FastAPI(
         title="Distributed Event Processing Platform",

@@ -22,8 +22,20 @@ At minimum:
 
 Avoid unbounded-cardinality labels such as user ID, URL, request ID, or event ID.
 
+Feature 015 exposes a dependency-free Prometheus text registry. Route paths are
+normalized to fixed families before recording and the registry always publishes
+the HTTP, queue, worker, Mongo, Elasticsearch, Redis, rate-limit, and lifecycle
+families. The request middleware accepts only canonical UUID request IDs,
+generates operation IDs, records completion status, and emits JSON completion
+events with normalized route names.
+
 ## Health
 
 - liveness: process/event loop is alive;
 - readiness: core ingestion durability path can make progress (Mongo + worker + queue operational);
 - component health: separate Mongo, ES, Redis, projector, queue state with healthy/degraded/unhealthy detail.
+
+The HTTP health routes are `/health/live`, `/health/ready`, and
+`/health/components`. Readiness requires Mongo, queue, and persistence-worker
+probes to be healthy. Elasticsearch and Redis can be degraded while readiness
+remains true because they are derived services.

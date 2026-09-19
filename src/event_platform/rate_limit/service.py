@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from types import MappingProxyType
 
+from event_platform.observability.metrics import MetricsRegistry
 from event_platform.rate_limit.identity import normalize_client_identity
 from event_platform.rate_limit.local_bucket import LocalTokenBucket
 from event_platform.rate_limit.models import (
@@ -29,6 +30,7 @@ class RateLimiter:
         local_bucket: LocalTokenBucket,
         redis_bucket: RedisTokenBucket | None = None,
         trusted_proxy_hops: int = 0,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         if not 0 <= trusted_proxy_hops <= 10:
             raise ValueError("trusted proxy hops are outside bounds")
@@ -49,6 +51,7 @@ class RateLimiter:
         self.local_bucket = local_bucket
         self.redis_bucket = redis_bucket
         self.trusted_proxy_hops = trusted_proxy_hops
+        self.metrics = metrics
 
     async def check(
         self,
@@ -81,6 +84,11 @@ class RateLimiter:
                         "request_id": request_id,
                     },
                 )
+                if self.metrics is not None:
+                    self.metrics.inc(
+                        "event_platform_rate_limit_decisions_total",
+                        {"backend": "local", "outcome": "degraded"},
+                    )
         else:
             logger.info(
                 "rate limiter using local fallback",
@@ -95,9 +103,8 @@ class RateLimiter:
         self._emit_decision(route_class, decision, request_id)
         return decision
 
-    @staticmethod
     def _emit_decision(
-        route_class: RouteClass, decision: RateDecision, request_id: str | None
+        self, route_class: RouteClass, decision: RateDecision, request_id: str | None
     ) -> None:
         logger.info(
             "rate limiter decision",
@@ -108,11 +115,19 @@ class RateLimiter:
                 "request_id": request_id,
             },
         )
+        if self.metrics is not None:
+            self.metrics.inc(
+                "event_platform_rate_limit_decisions_total",
+                {
+                    "backend": decision.backend,
+                    "outcome": "allowed" if decision.allowed else "denied",
+                },
+            )
 
 
 def classify_route(*, method: str, path: str) -> RouteClass | None:
     normalized = path.rstrip("/") or "/"
-    if normalized in {"/health/live", "/health/ready", "/metrics"}:
+    if normalized in {"/health/live", "/health/ready", "/health/components", "/metrics"}:
         return None
     if normalized == "/events" and method.upper() in {"POST", "PUT", "PATCH"}:
         return RouteClass.INGESTION
