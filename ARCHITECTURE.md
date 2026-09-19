@@ -212,6 +212,8 @@ The index has `dynamic: false` at the top level. Stable fields have explicit map
 
 No language-specific stemming is used because event metadata commonly contains product names, identifiers, browser/device names, and short technical strings where aggressive stemming can reduce precision.
 
+Feature 011 owns the fixed mapping and read-side search boundary in `src/event_platform/search/mapping.py`, `search/search.py`, and `api/routes/search.py`. `GET /events/search` accepts only bounded typed terms and exact filters, builds a fixed query, and returns signed filter-bound continuation cursors ordered by timestamp and event ID. It never accepts client Elasticsearch DSL and maps dependency or decode failures to safe 503 responses.
+
 ## 11. Online Elasticsearch rebuild
 
 All callers and the live projector write/search through a stable alias, e.g. `events-search`. Physical generations are immutable names such as `events-v000001`, `events-v000002`.

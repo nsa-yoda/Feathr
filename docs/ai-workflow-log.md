@@ -189,3 +189,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** Feature 012 owns online rebuild orchestration; Feature 010 exposes an optional target-generation write seam without implementing alias swaps or bulk rebuild.
 - **Artifacts/code affected:** `specs/010-search-projection-changestream/`, `src/event_platform/search/`, `src/event_platform/storage/checkpoints.py`, `src/event_platform/storage/change_stream.py`, tests, dependency lock files, architecture, traceability, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** 26 focused projection unit tests and 2 failure tests pass; the real-service integration selection explicitly skips one test without MongoDB/Elasticsearch. The full unit suite passes 181 tests with two existing dependency deprecation warnings; Ruff format/lint, strict mypy, and diff checks pass. Final review report: `specs/010-search-projection-changestream/reviews/review-20260918-211700.md`.
+
+### 2026-09-18 — Elasticsearch mapping and search implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify and implement Feature 011's fixed Elasticsearch mapping and bounded metadata search API.
+- **AI proposal/contribution:** added versioned `dynamic:false` mapping, flattened metadata preservation, deterministic depth-first metadata text, typed fixed-query search, exact filters, and signed filter-bound search-after cursors.
+- **What was useful:** keeping search request construction behind a typed service prevented arbitrary client DSL and made safe dependency translation testable with deterministic fakes.
+- **Pushback/correction:** Elasticsearch remains the sole search dependency; the route never falls back to Mongo and returns a safe retryable 503 when the service is absent or unavailable.
+- **Human decision and rationale:** Feature 010 owns projection writes and the stable alias; Feature 011 owns mapping and read-side search while client lifecycle remains a later feature responsibility.
+- **Artifacts/code affected:** `specs/011-elasticsearch-mapping-search/`, `src/event_platform/search/mapping.py`, `src/event_platform/search/search.py`, `src/event_platform/api/routes/search.py`, `src/event_platform/main.py`, tests, architecture, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** 23 focused mapping/search unit tests and 1 failure test pass; the real Elasticsearch integration path is implemented and explicitly skips when `ELASTICSEARCH_URL` is unavailable. The full unit suite passes 204 tests with two existing dependency deprecation warnings; Ruff format/lint, strict mypy, and diff checks pass. Final review report: `specs/011-elasticsearch-mapping-search/reviews/review-20260919-011500.md`.

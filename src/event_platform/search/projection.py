@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Literal, Protocol
 
 from event_platform.domain.events import CanonicalEvent
+from event_platform.search.mapping import project_search_document
 
 logger = logging.getLogger("event_platform.search_projection")
 
@@ -130,16 +131,11 @@ class RetryPolicy:
 def project_event(event: CanonicalEvent) -> dict[str, object]:
     """Create a deterministic, JSON-safe source from canonical event fields."""
 
-    return {
-        "event_id": str(event.event_id),
-        "event_type": event.event_type,
-        "timestamp": event.timestamp.astimezone(UTC).isoformat(),
-        "user_id": event.user_id,
-        "source_url": str(event.source_url),
-        "metadata": _copy_json(event.metadata),
-        "ingested_at": event.ingested_at.astimezone(UTC).isoformat(),
-        "schema_version": event.schema_version,
-    }
+    source = project_search_document(event)
+    source["timestamp"] = event.timestamp.astimezone(UTC).isoformat()
+    source["ingested_at"] = event.ingested_at.astimezone(UTC).isoformat()
+    source["metadata"] = _copy_json(source["metadata"])
+    return source
 
 
 def _copy_json(value: object) -> object:

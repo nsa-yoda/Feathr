@@ -105,6 +105,8 @@ async def test_projection_is_deterministic_and_checkpoint_follows_all_writes() -
     assert first == second
     assert first["event_id"] == str(event.event_id)
     assert first["metadata"] == {"campaign": "winter", "rank": 2}
+    assert first["metadata_text"] == "campaign winter rank 2"
+    assert first["payload_hash"] == event.payload_hash
 
     calls: list[str] = []
     writer = FakeWriter(calls)
