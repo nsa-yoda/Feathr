@@ -1,3 +1,6 @@
-# Demo UI Implementation Target
+# Reviewer Operations UI
 
-Feature 023 creates the actual React/TypeScript application here. Keep the UI intentionally reviewer-oriented. It must be built into the normal Docker Compose stack and remain a consumer of public/read-only ops APIs rather than a source of backend truth.
+Feature 023 provides the lightweight reviewer console in `public/index.html`.
+It is served by the existing unprivileged nginx image, uses same-origin `/api/`
+proxy requests, caps event bursts at 20, and keeps operations data read-only and
+secret-safe. Open `http://localhost:3000` from the Compose stack.

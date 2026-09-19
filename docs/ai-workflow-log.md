@@ -342,3 +342,18 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** preserve the API's documented 202 queue semantics and treat Newman/live API execution as a separate runtime gate when the local tool or daemon is unavailable.
 - **Artifacts/code affected:** `postman/`, `scripts/postman`, `Makefile`, Postman README, README quickstart, Feature 022 spec artifacts, collection contract tests, traceability, and this workflow log.
 - **Validation/review performed:** focused Postman contract tests pass; full repository gates and the Newman availability result are recorded in `CODEX_WORK.LOG` and the Feature 022 staff report.
+
+### 2026-09-19 — Feature 023 demo operations UI
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify and implement the lightweight reviewer operations console in the Compose UI service.
+- **AI proposal/contribution:** mapped the existing public health, event, search, analytics, realtime, metrics, and nginx proxy contracts into a dependency-light responsive console with shared safe request/error handling, accessible navigation, bounded event bursts, and read-only operations summaries.
+- **What was useful:** the existing Compose/nginx boundary allowed same-origin `/api/` calls without a new CORS or backend surface; contract tests keep the reviewer UI behavior inspectable without a browser daemon.
+- **Pushback/correction:** operations uses the available typed health, realtime, metrics, and rebuild-status contracts and shows a safe unavailable message where a record is absent; it never invents backend data or exposes raw payloads. Live browser and Compose evidence remain separate runtime gates.
+- **Human decision and rationale:** keep the UI a reviewer console rather than a product frontend, favoring clear loading/empty/error states and bounded workflows over visual framework expansion.
+- **Artifacts/code affected:** `frontend/public/index.html`, `frontend/README.md`, UI contract/spec artifacts, UI contract tests, README, traceability, and this workflow log.
+- **Validation/review performed:** frontend contract tests and static lint/format checks pass; live browser/Compose execution is recorded as environment-gated in the feature work log and staff report.
+
+### 2026-09-19 — Feature 023 review correction
+
+- **Correction:** review remediation added events user/event-type filters and next-cursor navigation, search user filtering, dashboard last-success retention plus realtime/cache cards, and safe operational metric summaries. The earlier intentional-scope note is superseded by these implemented summaries; raw DLQ payloads remain excluded.

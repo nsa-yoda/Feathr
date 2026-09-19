@@ -43,3 +43,5 @@ This file starts as a planning matrix. Codex must update the final two columns w
 | AWS SQS drop-in notes | 004, 025 | port + design notes | TBD | doc review |
 | Reviewer UI value-add | 024 | Compose UI | TBD | browser/smoke |
 | Postman reviewer suite | 022 | `specs/022-postman-reviewer-suite/spec.md`, Postman contract | `postman/Distributed Event Processing Platform.postman_collection.json`, `postman/Local Docker.postman_environment.json`, and `scripts/postman` provide twelve ordered folders, assertions, bounded polling, variable capture, and Newman execution | `tests/unit/test_postman_collection.py` (JSON/folder/assertion/polling/runner checks); live Newman run requires Newman and an API |
+
+| Demo operations UI | 023 | `specs/023-demo-operations-ui/spec.md`, UI contract | `frontend/public/index.html` and nginx proxy provide navigation, event generation, events/search/analytics/realtime/operations views, bounded bursts, and safe states | `tests/unit/test_frontend_contract.py`; live browser and Compose checks require runtime tools |
