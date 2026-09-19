@@ -207,6 +207,13 @@ class SearchProjector:
         self._emit("projector.start", state=self._status.state)
         return self._status
 
+    async def set_target_index(self, target_index: str | None) -> None:
+        """Atomically change the optional rebuild target used by subsequent writes."""
+
+        if target_index is not None and (not target_index or len(target_index) > 255):
+            raise ValueError("projection target index is invalid")
+        self._target_index = target_index
+
     async def project_change(self, change: ChangeStreamEvent) -> ProjectionStatus:
         if self._stop_requested:
             raise ProjectionError("projector_stopped")

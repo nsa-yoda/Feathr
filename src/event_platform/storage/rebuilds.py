@@ -1,0 +1,105 @@
+"""Mongo-backed durable rebuild lease and state storage."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any, cast
+
+from pymongo import ReturnDocument
+from pymongo.asynchronous.collection import AsyncCollection
+from pymongo.errors import DuplicateKeyError, PyMongoError
+
+from event_platform.search.rebuild import RebuildLeaseStore, RebuildRecord
+
+
+class RebuildStorageError(RuntimeError):
+    """Safe Mongo rebuild-state dependency failure."""
+
+
+class MongoRebuildStore(RebuildLeaseStore):
+    _LOCK_ID = "__search_rebuild_lock__"
+
+    def __init__(
+        self,
+        collection: AsyncCollection[Mapping[str, object]],
+        lock_collection: AsyncCollection[Mapping[str, object]] | None = None,
+    ) -> None:
+        self._collection = collection
+        self._lock_collection = lock_collection or collection
+
+    async def acquire(self, record: RebuildRecord) -> bool:
+        now = datetime.now(UTC)
+        try:
+            document = await cast(Any, self._lock_collection).find_one_and_update(
+                {
+                    "_id": self._LOCK_ID,
+                    "$or": [
+                        {"phase": {"$in": ["completed", "failed"]}},
+                        {"lease_expires_at": {"$lte": now}},
+                        {"rebuild_id": {"$exists": False}},
+                    ],
+                },
+                {"$set": _document(record)},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+        except DuplicateKeyError:
+            return False
+        except PyMongoError:
+            raise RebuildStorageError("acquire_rebuild_lease") from None
+        if not isinstance(document, Mapping) or document.get("rebuild_id") != str(
+            record.rebuild_id
+        ):
+            return False
+        try:
+            await cast(Any, self._collection).replace_one(
+                {"rebuild_id": str(record.rebuild_id)}, _document(record), upsert=True
+            )
+        except PyMongoError:
+            raise RebuildStorageError("save_rebuild") from None
+        return True
+
+    async def renew(self, record: RebuildRecord, lease_expires_at: datetime) -> bool:
+        try:
+            result = await cast(Any, self._lock_collection).update_one(
+                {
+                    "_id": self._LOCK_ID,
+                    "rebuild_id": str(record.rebuild_id),
+                    "owner": record.owner,
+                },
+                {"$set": {"lease_expires_at": lease_expires_at}},
+            )
+        except PyMongoError:
+            raise RebuildStorageError("renew_rebuild_lease") from None
+        return bool(getattr(result, "modified_count", 0) or getattr(result, "matched_count", 0))
+
+    async def save(self, record: RebuildRecord) -> None:
+        try:
+            await cast(Any, self._collection).replace_one(
+                {"rebuild_id": str(record.rebuild_id), "owner": record.owner},
+                _document(record),
+                upsert=False,
+            )
+        except PyMongoError:
+            raise RebuildStorageError("save_rebuild") from None
+
+    async def latest(self) -> RebuildRecord | None:
+        try:
+            document = await cast(Any, self._collection).find_one(
+                {"_id": {"$ne": self._LOCK_ID}}, sort=[("started_at", -1)]
+            )
+        except PyMongoError:
+            raise RebuildStorageError("load_rebuild") from None
+        return _record(document) if document is not None else None
+
+
+def _document(record: RebuildRecord) -> dict[str, object]:
+    return record.model_dump(mode="json")
+
+
+def _record(document: Mapping[str, object]) -> RebuildRecord:
+    try:
+        return RebuildRecord.model_validate(document)
+    except (TypeError, ValueError, KeyError):
+        raise RebuildStorageError("decode_rebuild") from None

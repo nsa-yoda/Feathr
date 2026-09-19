@@ -200,3 +200,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** Feature 010 owns projection writes and the stable alias; Feature 011 owns mapping and read-side search while client lifecycle remains a later feature responsibility.
 - **Artifacts/code affected:** `specs/011-elasticsearch-mapping-search/`, `src/event_platform/search/mapping.py`, `src/event_platform/search/search.py`, `src/event_platform/api/routes/search.py`, `src/event_platform/main.py`, tests, architecture, traceability, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** 23 focused mapping/search unit tests and 1 failure test pass; the real Elasticsearch integration path is implemented and explicitly skips when `ELASTICSEARCH_URL` is unavailable. The full unit suite passes 204 tests with two existing dependency deprecation warnings; Ruff format/lint, strict mypy, and diff checks pass. Final review report: `specs/011-elasticsearch-mapping-search/reviews/review-20260919-011500.md`.
+
+### 2026-09-19 — Online Elasticsearch rebuild implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify and implement Feature 012's leased, verified Elasticsearch online rebuild.
+- **AI proposal/contribution:** added typed durable rebuild records, Mongo lease/state adapter, versioned target creation, live dual-write activation callback, bounded bulk retry, count/failure verification, atomic alias swap, rollback retention metadata, read-only status, and a guarded CLI contract.
+- **What was useful:** keeping lease/state, Elasticsearch operations, and orchestration behind separate ports made alias safety and failure injection deterministic.
+- **Pushback/correction:** the serving alias remains unchanged until verification proves scanned/indexed/target counts and zero unresolved failures; failed runs retain state and clear live target activation.
+- **Human decision and rationale:** rebuild status is read-only over HTTP, while mutating CLI execution requires explicit `--confirm` and an application dependency harness.
+- **Artifacts/code affected:** `specs/012-elasticsearch-online-rebuild/`, rebuild/search/storage modules, status route, tests, architecture, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** 10 focused rebuild tests pass with one explicit service-gated integration skip; 212 unit tests pass when the process smoke test has socket permission (the sandboxed run had 211 passes plus one environment `PermissionError`); failure tests pass 4/4, integration selection is 6 skips without external services, Ruff format/lint, strict mypy, and diff checks pass. Final review report: `specs/012-elasticsearch-online-rebuild/reviews/review-20260919-030000.md`.

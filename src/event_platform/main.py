@@ -11,6 +11,7 @@ from event_platform.api.problems import register_problem_handlers
 from event_platform.api.routes.events import router as events_router
 from event_platform.api.routes.health import router as health_router
 from event_platform.api.routes.query import router as query_router
+from event_platform.api.routes.rebuild import router as rebuild_router
 from event_platform.api.routes.search import router as search_router
 from event_platform.api.routes.stats import router as stats_router
 from event_platform.core.logging import configure_logging
@@ -71,5 +72,6 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     app.include_router(events_router)
     app.include_router(query_router)
     app.include_router(search_router)
+    app.include_router(rebuild_router)
     app.include_router(stats_router)
     return app

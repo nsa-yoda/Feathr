@@ -233,6 +233,8 @@ Rebuild algorithm:
 
 Because live inserts are dual-written while the bulk snapshot is built, callers keep using the old alias until the new generation is caught up, then the alias switches atomically. Rebuilds are seamless to API callers but highly visible operationally.
 
+Feature 012 implements the rebuild coordinator in `src/event_platform/search/rebuild.py`, Mongo lease/state persistence in `storage/rebuilds.py`, Elasticsearch generation/alias operations in `search/elasticsearch_rebuild.py`, and read-only status in `api/routes/rebuild.py`. The coordinator activates the Feature 010 target callback before scanning, retries transient bulk failures, verifies scanned/indexed/target counts and unresolved failures, performs one atomic alias action, and retains rollback metadata without logging document bodies.
+
 Structured rebuild events include:
 
 - `search_rebuild.started`
