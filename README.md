@@ -1,6 +1,6 @@
 # Distributed Event Processing Platform
 
-> **Current state:** Features 001-024 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, and executable Postman reviewer suite plus the reviewer operations UI. Static Compose/Postman/UI validation is complete; live startup, smoke, and Newman/browser execution require their runtime tools; see `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
+> **Current state:** Features 001-025 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, and executable Postman reviewer suite plus the reviewer operations UI. Static Compose/Postman/UI validation is complete; live startup, smoke, and Newman/browser execution require their runtime tools; see `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
 
 A production-oriented event ingestion, processing, search, analytics, caching, and reviewer-demo platform built with FastAPI, MongoDB, Elasticsearch, Redis, and an assessment-mandated in-process SQS-style queue.
 
@@ -90,6 +90,36 @@ The API and UI containers run as non-root users. Redis is unauthenticated in the
 local defaults; set `REDIS_PASSWORD` and update `EVENT_PLATFORM_REDIS_URL` in
 `.env` together when a password is required.
 
+
+## Configuration and endpoint map
+
+Copy `.env.example` to `.env` before Compose. The local defaults use API port
+8000, reviewer UI port 3000, a Mongo replica set at `rs0`, Elasticsearch on
+its Compose network, Redis without a password, a 90-second Mongo init deadline,
+and bounded dependency/request limits. Set `REDIS_PASSWORD` together with a
+matching authenticated Redis URL when credentials are required.
+
+| Surface | URL/path | Ownership/behavior |
+|---|---|---|
+| OpenAPI | `http://localhost:8000/docs` | FastAPI contract discovery |
+| Liveness/readiness/components | `/health/live`, `/health/ready`, `/health/components` | Process and dependency state |
+| Metrics | `/metrics` | Prometheus text, safe operational counters |
+| Canonical events | `POST/GET /events` | Mongo-backed event acceptance/query |
+| Search | `GET /events/search` | Eventually consistent Elasticsearch projection |
+| Analytics/realtime | `/events/stats`, `/events/stats/realtime` | Mongo aggregation and Redis cache-aside |
+| Rebuild status | `/events/search/rebuild` | Read-only Mongo-backed rebuild state |
+| Reviewer UI | `http://localhost:3000` | Static console through nginx `/api/` proxy |
+
+## Consistency and known limitations
+
+MongoDB is canonical event state. Elasticsearch is an eventually consistent,
+rebuildable projection and Redis is disposable cache/rate-limit state. A `202`
+response confirms validated admission to the process-local queue; it is not
+durable across application-process failure. Queue delivery is at-least-once,
+and duplicate persistence is handled through immutable event IDs and hashes.
+The local stack is intentionally single-process; production SQS is the scaling
+path described in `ARCHITECTURE.md` and `docs/operations/sqs-migration.md`.
+
 ## Postman reviewer suite
 
 Import the v2.1 collection and local environment from `postman/`, then run the
@@ -97,14 +127,21 @@ numbered folders in order. The collection captures an event ID and uses bounded
 polling for canonical query and Elasticsearch search. Newman users can run
 `make postman`; the wrapper exits clearly when Newman or the API is unavailable.
 
-Feature 024 adds the reproducible CI and developer command surface; final
-submission reconciliation remains the last feature. The current reviewer URLs are:
+Feature 025 reconciles the final architecture, traceability, and AI workflow documentation. The current reviewer URLs are:
 
 - API docs: `http://localhost:8000/docs`
 - Liveness: `http://localhost:8000/health/live`
 - Readiness: `http://localhost:8000/health/ready`
 - Component health: `http://localhost:8000/health/components`
 - Metrics: `http://localhost:8000/metrics`
+
+## AI in My Workflow
+
+This repository records AI collaboration in [`docs/ai-workflow-log.md`](docs/ai-workflow-log.md). Codex used the Spec Kit workflows to turn each ordered request into accepted specifications, plans, contracts, checklists, tasks, implementation changes, convergence notes, and review evidence. Serena MCP searches were used to trace existing route, lifecycle, storage, queue, projection, cache, Compose, and documentation ownership before proposing changes.
+
+Concrete examples include mapping Mongo as canonical and Elasticsearch/Redis as derived state; adding bounded Compose startup and smoke checks; building the Postman suite around actual response/problem contracts; creating the reviewer UI against the existing nginx `/api/` boundary; and adding locked Make/CI commands with coverage artifacts. Review agents then challenged incorrect assumptions: the Postman suite stopped claiming repeated requests reuse the original event ID, polling gained request timeouts and reachable degraded paths, the UI added filters/cursors and preserved degraded dashboard state, and the rebuild demo became a truthful guarded command instead of a failing promise.
+
+Human judgment remained authoritative. The constitution, ADRs, accepted specifications, service contracts, and observed test/runtime evidence determined what was accepted. AI suggestions were rejected or narrowed when they would imply durable `202` acceptance, exactly-once processing, authoritative Elasticsearch/Redis state, unverified live services, or product-level UI scope.
 
 ## Reviewer operations UI
 
@@ -114,7 +151,7 @@ search, analytics, realtime cache status, and read-only operations views. Event
 bursts are capped at 20 requests and all API errors render their safe problem
 fields.
 
-The final submission documentation will also include:
+The final submission documentation includes:
 
 1. Project overview and key guarantees
 2. Architecture summary and link to `ARCHITECTURE.md`
@@ -132,6 +169,16 @@ The final submission documentation will also include:
 14. **AI in My Workflow** — tools used, concrete contributions, corrections/pushback, and how AI changed speed/quality, grounded in `docs/ai-workflow-log.md`
 
 Do not leave generic AI boilerplate. The panel specifically wants evidence of strategic AI use and human judgment.
+
+## Testing and evidence
+
+The local static gates are `make format-check`, `make lint`, `make typecheck`,
+`make test-unit`, `make test-integration`, and `make test-failure`. Unit and
+failure selections run without external services; integration tests collect
+real-service lifecycles and explicitly skip when MongoDB, Elasticsearch, or
+Redis endpoints are unavailable. Compose config is static evidence, while
+clean Compose smoke, Newman/Postman, browser UI, online rebuild, and hosted CI
+are live gates that must be run in an environment providing those dependencies.
 
 ## Integration lifecycles
 

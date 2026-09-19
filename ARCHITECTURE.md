@@ -16,7 +16,7 @@ The demo runs as a single FastAPI process because an in-process queue cannot be 
 Security hardening is enforced at the HTTP receive/configuration boundary: body
 bytes are bounded before JSON parsing, typed query and cursor contracts remain
 strict, CORS uses one configured origin, forwarded identity is opt-in, and
-normal responses/logs are sanitized. The API and future reviewer UI images use
+normal responses/logs are sanitized. The API and reviewer UI images use
 non-root runtime users; local Elasticsearch authentication is intentionally a
 Compose-only convenience documented as such.
 
@@ -25,7 +25,7 @@ Compose-only convenience documented as such.
 ```text
                               ┌───────────────────────────┐
                               │        Demo UI            │
-                              │ React/TypeScript + nginx  │
+                              │ static reviewer console + nginx  │
                               └─────────────┬─────────────┘
                                             │ HTTP
                                             ▼
@@ -404,7 +404,7 @@ Docker Compose services:
 - `mongo-init` — one-shot replica-set initialization if needed;
 - `elasticsearch` — single node for local demo;
 - `redis` — cache/rate limiting;
-- `ui` — static React build behind nginx/reverse proxy.
+- `ui` — static reviewer console behind nginx/reverse proxy.
 
 The app service runs one process. Production notes explain how SQS removes this restriction.
 

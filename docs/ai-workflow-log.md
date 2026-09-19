@@ -368,3 +368,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** keep the pipeline focused on the assessment's required quality gates rather than introducing unrelated release automation.
 - **Artifacts/code affected:** Makefile, `.github/workflows/ci.yml`, README, Feature 024 artifacts, traceability, developer-experience contract tests, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** Docker-free target/CI tests and static gates pass; live CI execution remains the hosted-runner evidence source.
+
+### 2026-09-19 — Feature 025 final documentation and AI workflow
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** reconcile the final architecture, README, traceability, acceptance checklist, and AI workflow record after all ordered features reached review gates.
+- **AI proposal/contribution:** used Serena repository searches and review-agent findings to identify stale UI terminology, planning placeholders, unsupported live-test checkboxes, missing Feature 025 evidence, and undocumented audit scope; added final documentation, traceability rows, contract tests, and explicit runtime-condition language.
+- **What was useful:** cross-artifact searches quickly compared implementation ownership, review reports, task state, and prior work-log evidence; contract tests make the final documentation claims executable and keep required paths and workflow records from silently disappearing.
+- **Pushback/correction:** review findings rejected generic presence checks and positive claims for service-backed integration or online rebuild; the final record distinguishes static/unit/failure evidence, explicit integration skips, and live Compose/Postman/browser/hosted-CI gates. Negative exactly-once wording remains a limitation, not a guarantee.
+- **Human decision and rationale:** the constitution, accepted ADRs, observed code, and current test/runtime evidence remain authoritative. Mongo is canonical; Elasticsearch and Redis remain derived; local `202 Accepted` does not promise durability across process failure; and the reviewer console remains a static operational surface.
+- **Artifacts/code affected:** `README.md`, `ARCHITECTURE.md`, `docs/requirements-traceability.md`, `docs/ai-workflow-log.md`, `FINAL-ACCEPTANCE-CHECKLIST.md`, `tests/unit/test_final_documentation.py`, Feature 025 artifacts, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** Serena stale-claim audit found no Motor implementation references or unclassified positive exactly-once/durable-202/authoritative ES-Redis claims; documentation contract tests, static gates, unit/failure selection, Compose config, and diff checks are recorded in the Feature 025 staff report and work log. Live service-backed integration, online rebuild, Newman, browser, clean Compose smoke, and hosted CI remain separately gated.
