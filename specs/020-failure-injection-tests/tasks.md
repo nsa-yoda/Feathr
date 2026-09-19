@@ -25,7 +25,7 @@
 - [X] T012 Run `speckit-converge`, append and complete any required convergence tasks, and record the result.
 - [X] T013 Run staff review and comprehensive code/comments/tests/errors/types/simplify reviews; remediate blockers/warnings and write the feature-local report.
 - [X] T014 Run format, lint, typecheck, unit, integration, failure, coverage, and diff gates; record service-gated limits and final counts.
-- [ ] T015 Commit the approved Feature 020 implementation and docs on `main`, then perform post-commit verification.
+- [X] T015 Commit the approved Feature 020 implementation and docs on `main`, then perform post-commit verification.
 
 ## Dependencies & Execution Order
 
