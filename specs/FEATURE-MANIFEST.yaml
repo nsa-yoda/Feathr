@@ -101,3 +101,51 @@ features:
     slug: final-documentation-ai-workflow
     depends_on: [001, 002, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 021, 022, 023, 024]
     summary: "Reconcile README/ARCHITECTURE, SQS notes, index/cache rationale, failure/scaling sections, traceability, and factual AI workflow evidence."
+  - id: 026
+    slug: ACR1_storage-bootstrap-integrity
+    depends_on: [003, 024]
+    summary: "Make canonical storage bootstrap, schema ownership, operational indexes, and production Mongo requirements explicit and verifiable."
+  - id: 027
+    slug: ACR1_lifecycle-delivery-safety
+    depends_on: [006, 007, 010, 016, 026]
+    summary: "Drain accepted work safely, renew visibility, reject stale receipts, and supervise tasks by declared lifecycle criticality."
+  - id: 028
+    slug: ACR1_rebuild-convergence-operations
+    depends_on: [010, 011, 012, 026, 027]
+    summary: "Close rebuild scan and swap races with fencing, convergence, durable state, cleanup recovery, and operator controls."
+  - id: 029
+    slug: ACR1_projection-resilience-ownership
+    depends_on: [010, 011, 027]
+    summary: "Isolate projection failure from canonical ingestion, fence projector ownership, batch indexing, and classify resume failures."
+  - id: 030
+    slug: ACR1_request-idempotency
+    depends_on: [002, 003, 005, 006, 026]
+    summary: "Implement durable HTTP Idempotency-Key reservation, replay, conflict, recovery, retention, and concurrency semantics."
+  - id: 031
+    slug: ACR1_cursor-api-boundary-hardening
+    depends_on: [002, 008, 009, 011, 026]
+    summary: "Share and rotate cursor keys, remove internal fields, normalize time and URL input, and enforce storage-level bounds."
+  - id: 032
+    slug: ACR1_queue-performance-durability
+    depends_on: [004, 007, 027]
+    summary: "Remove local queue hot-path scans and add a production durable queue and dead-letter capability with truthful acceptance guarantees."
+  - id: 033
+    slug: ACR1_analytics-cache-scalability
+    depends_on: [009, 013, 026]
+    summary: "Use rebuildable analytics rollups and cancellation-safe, replica-aware cache refresh coordination for bounded read cost."
+  - id: 034
+    slug: ACR1_route-observability-consistency
+    depends_on: [014, 015, 029, 032, 033]
+    summary: "Derive policy and telemetry from the live route registry and add bounded distributed-operation and health signals."
+  - id: 035
+    slug: ACR1_composition-dependency-typing
+    depends_on: [015, 016, 034]
+    summary: "Split application composition into typed cohesive factories with explicit ownership, failure unwinding, and shared API helpers."
+  - id: 036
+    slug: ACR1_ci-supply-chain-hygiene
+    depends_on: [019, 020, 021, 024, 026, 027, 028, 029, 030, 031, 032, 033, 034, 035]
+    summary: "Make CI integration gates real, pin build inputs, produce supply-chain evidence, and remove verified repository debris."
+  - id: 037
+    slug: ACR1_production-security-boundary
+    depends_on: [017, 026, 030, 031, 032, 034, 035, 036]
+    summary: "Define authenticated tenant authorization, secure production startup and topology, UI headers, secrets, audit, and degraded limiter policy."

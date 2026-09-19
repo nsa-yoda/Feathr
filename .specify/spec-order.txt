@@ -23,3 +23,15 @@
 023-demo-operations-ui
 024-developer-experience-ci
 025-final-documentation-ai-workflow
+026-ACR1_storage-bootstrap-integrity
+027-ACR1_lifecycle-delivery-safety
+028-ACR1_rebuild-convergence-operations
+029-ACR1_projection-resilience-ownership
+030-ACR1_request-idempotency
+031-ACR1_cursor-api-boundary-hardening
+032-ACR1_queue-performance-durability
+033-ACR1_analytics-cache-scalability
+034-ACR1_route-observability-consistency
+035-ACR1_composition-dependency-typing
+036-ACR1_ci-supply-chain-hygiene
+037-ACR1_production-security-boundary
