@@ -42,5 +42,7 @@ class ElasticsearchProjectionWriter:
         await self._client.close()
 
 
-def create_client(url: str) -> AsyncElasticsearch:
-    return AsyncElasticsearch(hosts=[url])
+def create_client(url: str, *, request_timeout: float = 5.0) -> AsyncElasticsearch:
+    if request_timeout <= 0:
+        raise ValueError("request_timeout must be positive")
+    return AsyncElasticsearch(hosts=[url], request_timeout=request_timeout)

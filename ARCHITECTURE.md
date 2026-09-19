@@ -13,6 +13,13 @@ The design intentionally distinguishes **canonical state** from **derived state*
 
 The demo runs as a single FastAPI process because an in-process queue cannot be shared safely across multiple application processes. A production SQS implementation removes that constraint and separates horizontally scalable API and worker fleets.
 
+Security hardening is enforced at the HTTP receive/configuration boundary: body
+bytes are bounded before JSON parsing, typed query and cursor contracts remain
+strict, CORS uses one configured origin, forwarded identity is opt-in, and
+normal responses/logs are sanitized. The API and future reviewer UI images use
+non-root runtime users; local Elasticsearch authentication is intentionally a
+Compose-only convenience documented as such.
+
 ## 2. System diagram
 
 ```text

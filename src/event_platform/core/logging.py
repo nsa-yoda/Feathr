@@ -24,13 +24,34 @@ _UVICORN_EVENT_PREFIXES = (
     ("Application shutdown complete", "server.shutdown_complete"),
     ("Finished server process", "server.process_finished"),
 )
+_URL_LIKE = re.compile(r"(?:https?|redis|rediss|mongodb(?:\+srv)?|unix)://[^\s\"<>]+")
+
+
+def _safe_message(message: str) -> str:
+    """Remove URL credentials, queries, and fragments before JSON output."""
+
+    def replace(match: re.Match[str]) -> str:
+        parsed = urlsplit(match.group(0))
+        try:
+            hostname = parsed.hostname or ""
+            port = parsed.port
+        except ValueError:
+            hostname = ""
+            port = None
+        if ":" in hostname and not hostname.startswith("["):
+            hostname = f"[{hostname}]"
+        safe_netloc = hostname if port is None else f"{hostname}:{port}"
+        return parsed._replace(netloc=safe_netloc, query="", fragment="").geturl()
+
+    return _URL_LIKE.sub(replace, message)
 
 
 def _event_name(record: logging.LogRecord, message: str) -> str:
+    logger_name = str(record.name or "")
     supplied_event = getattr(record, "event", None)
     if supplied_event is not None:
         return str(supplied_event)
-    if record.name.startswith("uvicorn"):
+    if logger_name.startswith("uvicorn"):
         for prefix, event in _UVICORN_EVENT_PREFIXES:
             if message.startswith(prefix):
                 return event
@@ -70,13 +91,13 @@ class JsonLogFormatter(logging.Formatter):
     """Render log records as one safe JSON object per line."""
 
     def format(self, record: logging.LogRecord) -> str:
-        message = record.getMessage()
+        message = _safe_message(record.getMessage())
         payload: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "service": "event_platform",
             "event": _event_name(record, message),
-            "logger": record.name,
+            "logger": str(record.name or "unknown"),
             "message": message,
         }
         for field in _EXTRA_FIELDS:

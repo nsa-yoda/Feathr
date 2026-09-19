@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import secrets
 from collections.abc import Mapping
 from datetime import datetime, timedelta
@@ -50,7 +51,7 @@ class SearchQuery(BaseModel):
     def reject_control_characters(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        if any(ord(char) < 32 for char in value):
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
             raise ValueError("control characters are not allowed")
         return value
 
@@ -133,8 +134,18 @@ def decode_search_cursor(token: str, *, scope: bytes, key: bytes = _CURSOR_KEY) 
         raise SearchCursorError("cursor is invalid")
     try:
         raw = json.loads(payload)
+        if not isinstance(raw, dict) or set(raw) != {"s"}:
+            raise ValueError
         sort_values = raw["s"]
         if not isinstance(sort_values, list) or len(sort_values) != 2:
+            raise ValueError
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (str, int, float))
+            or (isinstance(value, float) and not math.isfinite(value))
+            or (isinstance(value, str) and len(value) > 256)
+            for value in sort_values
+        ):
             raise ValueError
         return sort_values
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):

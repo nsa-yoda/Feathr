@@ -28,6 +28,10 @@ def assert_problem(response: Response, status: int, code: str) -> dict[str, obje
     assert body["status"] == status
     assert body["error_code"] == code
     assert body["request_id"] == response.headers["x-request-id"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
     UUID(str(body["request_id"]))
     return body
 

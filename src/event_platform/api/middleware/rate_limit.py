@@ -9,7 +9,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from event_platform.api.problems import ProblemResponse
+from event_platform.api.problems import ProblemResponse, _safe_instance
 from event_platform.rate_limit.models import RateDecision
 from event_platform.rate_limit.service import RateLimiter, classify_route
 
@@ -35,7 +35,7 @@ class RateLimitMiddleware:
                 title="Service Unavailable",
                 status=503,
                 detail="The service is not ready to accept requests.",
-                instance=request.url.path,
+                instance=_safe_instance(request.url.path),
                 error_code="service_not_ready",
                 request_id=UUID(request_id),
             )
@@ -57,7 +57,7 @@ class RateLimitMiddleware:
                 title="Too Many Requests",
                 status=429,
                 detail="The request rate limit was exceeded.",
-                instance=request.url.path,
+                instance=_safe_instance(request.url.path),
                 error_code="rate_limit_exceeded",
                 request_id=UUID(request_id),
             )

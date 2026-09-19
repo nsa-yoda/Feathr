@@ -67,6 +67,10 @@ class EventQuery(BaseModel):
         maximum = {"event_type": 128, "user_id": 256, "source_url": 2_048}[str(info.field_name)]
         if value is not None and len(value) > maximum:
             raise ValueError("query filter exceeds its maximum length")
+        if value is not None and any(
+            ord(character) < 32 or ord(character) == 127 for character in value
+        ):
+            raise ValueError("control characters are not allowed")
         return value
 
     @field_validator("source_url")

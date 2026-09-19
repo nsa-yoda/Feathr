@@ -11,8 +11,13 @@ from fastapi import FastAPI
 from pymongo import AsyncMongoClient
 from redis.asyncio import Redis
 
+from event_platform.api.middleware.body_limit import BodyLimitMiddleware
 from event_platform.api.middleware.rate_limit import RateLimitMiddleware
 from event_platform.api.middleware.request_id import RequestIdMiddleware
+from event_platform.api.middleware.security_headers import (
+    ConfiguredCORSMiddleware,
+    SecurityHeadersMiddleware,
+)
 from event_platform.api.problems import register_problem_handlers
 from event_platform.api.routes.events import router as events_router
 from event_platform.api.routes.health import router as health_router
@@ -161,13 +166,24 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 ),
             )
             if app.state.settings.redis_url:
-                redis_client = Redis.from_url(app.state.settings.redis_url)
+                timeout = app.state.settings.dependency_timeout_seconds
+                redis_client = Redis.from_url(
+                    app.state.settings.redis_url,
+                    socket_connect_timeout=timeout,
+                    socket_timeout=timeout,
+                )
                 resources.append(("redis", redis_client.aclose))
                 app.state.realtime_cache = RedisCache(redis_client)
             else:
                 app.state.realtime_cache = None
             if app.state.settings.mongo_url:
-                mongo_client = AsyncMongoClient(app.state.settings.mongo_url)
+                timeout_ms = int(app.state.settings.dependency_timeout_seconds * 1000)
+                mongo_client = AsyncMongoClient(
+                    app.state.settings.mongo_url,
+                    serverSelectionTimeoutMS=timeout_ms,
+                    connectTimeoutMS=timeout_ms,
+                    socketTimeoutMS=timeout_ms,
+                )
                 resources.append(("mongo", mongo_client.close))
                 app.state.mongo_client = mongo_client
                 mongo_database = mongo_client[app.state.settings.mongo_database]
@@ -178,7 +194,8 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 app.state.event_store = injected_event_store
             if app.state.settings.elasticsearch_url:
                 elasticsearch_client = create_elasticsearch_client(
-                    app.state.settings.elasticsearch_url
+                    app.state.settings.elasticsearch_url,
+                    request_timeout=app.state.settings.dependency_timeout_seconds,
                 )
                 resources.insert(
                     next(
@@ -342,6 +359,9 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(BodyLimitMiddleware)
+    app.add_middleware(ConfiguredCORSMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestIdMiddleware)
     register_problem_handlers(app)
     app.include_router(health_router)

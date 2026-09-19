@@ -23,6 +23,10 @@ class ServiceSettings(BaseSettings):
     queue_capacity: int = Field(default=1_000, ge=1, le=100_000)
     queue_visibility_timeout: float = Field(default=30.0, ge=0.0, le=86_400.0)
     queue_send_timeout: float = Field(default=1.0, ge=0.0, le=60.0)
+    request_body_max_bytes: int = Field(default=1_048_576, ge=1_024, le=16_777_216)
+    request_query_max_bytes: int = Field(default=8_192, ge=256, le=65_536)
+    dependency_timeout_seconds: float = Field(default=5.0, ge=0.1, le=30.0)
+    cors_allowed_origin: str | None = Field(default=None, max_length=2_048)
     shutdown_grace_period: float = Field(default=5.0, ge=0.0, le=300.0)
     worker_concurrency: int = Field(default=1, ge=1, le=100)
     mongo_url: str | None = Field(default=None, max_length=2_048)
@@ -98,6 +102,32 @@ class ServiceSettings(BaseSettings):
             if not parsed.netloc:
                 raise ValueError("elasticsearch_url must include a host")
         return value
+
+    @field_validator("cors_allowed_origin")
+    @classmethod
+    def validate_cors_allowed_origin(cls, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        parsed = urlparse(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.netloc == "*"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/"}
+        ):
+            raise ValueError("cors_allowed_origin must be one exact HTTP(S) origin")
+        try:
+            if parsed.port is not None and not 1 <= parsed.port <= 65_535:
+                raise ValueError
+        except ValueError:
+            raise ValueError("cors_allowed_origin must use a valid port") from None
+        if parsed.path == "/":
+            raise ValueError("cors_allowed_origin must not include a path")
+        return f"{parsed.scheme}://{parsed.netloc}"
 
 
 class SettingsStartupError(RuntimeError):

@@ -182,17 +182,29 @@ def test_search_route_rejects_tampered_cursor() -> None:
     with client_for(ElasticsearchSearchService(fake)) as client:
         first = client.get("/events/search?q=term&limit=1")
         cursor = first.json()["next_cursor"]
+        calls_before = len(fake.calls)
         response = client.get(f"/events/search?q=other&limit=1&cursor={cursor}")
     assert response.status_code == 422
     assert response.headers["content-type"].startswith("application/problem+json")
+    assert len(fake.calls) == calls_before
 
 
 def test_search_route_rejects_invalid_query_as_problem() -> None:
-    with client_for(ElasticsearchSearchService(FakeClient([]))) as client:
+    fake = FakeClient([])
+    with client_for(ElasticsearchSearchService(fake)) as client:
         response = client.get("/events/search?q=&limit=201")
     assert response.status_code == 422
     assert response.headers["content-type"].startswith("application/problem+json")
     assert response.headers["x-request-id"] == response.json()["request_id"]
+    assert fake.calls == []
+
+
+def test_search_route_rejects_oversized_cursor_before_dependency_call() -> None:
+    fake = FakeClient([])
+    with client_for(ElasticsearchSearchService(fake)) as client:
+        response = client.get("/events/search?q=term&cursor=" + "x" * 513)
+    assert response.status_code == 422
+    assert fake.calls == []
 
 
 def test_search_query_rejects_arbitrary_dsl_fields() -> None:

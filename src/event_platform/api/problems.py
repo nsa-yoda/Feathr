@@ -50,7 +50,7 @@ def _problem(
         title=title,
         status=status,
         detail=detail,
-        instance=request.url.path[:_MAX_PROBLEM_TEXT_LENGTH],
+        instance=_safe_instance(request.url.path),
         error_code=error_code,
         request_id=request_id,
     )
@@ -61,7 +61,24 @@ def _problem(
         headers=headers,
     )
     response.headers["X-Request-ID"] = request_id
+    operation_id = getattr(request.state, "operation_id", None)
+    if operation_id is not None:
+        response.headers["X-Operation-ID"] = str(operation_id)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
     return response
+
+
+def _safe_instance(path: str) -> str:
+    """Keep problem instances bounded without echoing arbitrary path segments."""
+
+    normalized = normalize_route(path)
+    if normalized != "other":
+        return normalized
+    first_segment = next((segment for segment in path.split("/") if segment), "")
+    return f"/{first_segment}"[:_MAX_PROBLEM_TEXT_LENGTH] or "/"
 
 
 async def handle_http_error(request: Request, error: Exception) -> JSONResponse:

@@ -49,6 +49,13 @@ def test_identity_ignores_forwarding_by_default_and_accepts_valid_trusted_chain(
     assert normalize_client_identity(scope, trusted_proxy_hops=1) == "198.51.100.5"
     malformed = {**scope, "headers": [(b"x-forwarded-for", b"198.51.100.5")]}
     assert normalize_client_identity(malformed, trusted_proxy_hops=1) == "2001:db8::1"
+    for forwarded in (
+        b"not-an-ip, 2001:db8::1",
+        b"198.51.100.5,,2001:db8::1",
+        b"198.51.100.5, 2001:db8::1, 203.0.113.4",
+    ):
+        malformed_chain = {**scope, "headers": [(b"x-forwarded-for", forwarded)]}
+        assert normalize_client_identity(malformed_chain, trusted_proxy_hops=1) == "2001:db8::1"
 
 
 @pytest.mark.asyncio

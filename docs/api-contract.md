@@ -56,3 +56,20 @@ Use `application/problem+json` fields:
 - `request_id`
 
 Dependency-specific raw exceptions must never be returned to clients.
+
+## Security boundary
+
+The service rejects request bodies larger than the configured
+`EVENT_PLATFORM_REQUEST_BODY_MAX_BYTES` limit before route parsing. The default
+is 1 MiB and the accepted range is 1 KiB–16 MiB. Query/search strings, page
+sizes, UTC ranges, metadata, and signed opaque cursors are bounded by their
+typed contracts. The raw query string is limited by
+`EVENT_PLATFORM_REQUEST_QUERY_MAX_BYTES` (8 KiB by default, 256 bytes–64 KiB)
+before route parsing. Oversized bodies return `413` with `error_code`
+`request_body_too_large`; oversized raw queries return `414` with
+`request_query_too_large`; invalid input returns the normal safe `422` problem.
+
+CORS is exact-origin only and disabled when
+`EVENT_PLATFORM_CORS_ALLOWED_ORIGIN` is unset. Forwarded client IP headers are
+ignored by default. API responses include browser security headers and never
+include raw dependency errors, stack traces, credentials, or request bodies.

@@ -186,20 +186,25 @@ def test_source_url_filter_uses_canonical_trailing_slash() -> None:
     ],
 )
 def test_invalid_query_is_safe_problem(query: str, events: list[CanonicalEvent]) -> None:
-    with client_for(FakeStore(events)) as client:
+    store = FakeStore(events)
+    with client_for(store) as client:
         response = client.get(f"/events?{query}")
     assert response.status_code == 422
     assert response.headers["content-type"].startswith("application/problem+json")
     assert response.json()["error_code"] in {"request_validation_failed", "http_422"}
     assert "not-a-cursor" not in response.text
+    assert store.queries == []
 
 
 def test_tampered_cursor_is_rejected(events: list[CanonicalEvent]) -> None:
-    with client_for(FakeStore(events)) as client:
+    store = FakeStore(events)
+    with client_for(store) as client:
         cursor = client.get("/events?limit=1").json()["next_cursor"]
+        calls_before = len(store.queries)
         tampered = cursor[:-1] + ("A" if cursor[-1] != "A" else "B")
         response = client.get(f"/events?cursor={tampered}")
     assert response.status_code == 422
+    assert len(store.queries) == calls_before
 
 
 def test_cursor_is_bound_to_active_filters(events: list[CanonicalEvent]) -> None:
