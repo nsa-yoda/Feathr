@@ -24,7 +24,7 @@ Optional filters: event type, inclusive UTC `start`/`end`, user ID, and exact so
 
 ## GET /events/stats
 
-Bucket: `hour|day|week`. Bounded range. Counts grouped by bucket and event type.
+Bucket: `hour|day|week` (default `hour`). Both `start` and `end` may be omitted for the previous 24-hour UTC window; supplying only one is invalid. Explicit ranges are inclusive UTC timestamps bounded to 366 days. `week` buckets start on Monday. The response includes the effective `start`, `end`, fixed `timezone: UTC`, ordered nonzero counts grouped by bucket and event type, and `request_id`. Analytics returns at most 10,000 grouped points and rejects larger result sets rather than returning partial counts. The canonical Mongo aggregation has a finite 5-second `maxTimeMS` deadline to bound high-cardinality request lifetime. It reads canonical Mongo state through `$match` → `$dateTrunc`/`$group` → stable sort and returns safe 422/503 problem responses.
 
 ## GET /events/search
 

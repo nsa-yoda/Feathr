@@ -100,10 +100,10 @@ class FakeCollection:
         self.last_cursor = FakeCursor(list(self.documents))
         return self.last_cursor
 
-    async def aggregate(self, stages: list[Mapping[str, object]]) -> FakeCursor:
+    async def aggregate(self, stages: list[Mapping[str, object]], **options: object) -> FakeCursor:
         if self.error:
             raise self.error
-        self.last_filter = {"pipeline": stages}
+        self.last_filter = {"pipeline": stages, **options}
         return FakeCursor(list(self.documents))
 
     async def create_indexes(self, models: list[IndexModel]) -> list[str]:
@@ -205,7 +205,9 @@ async def test_store_insert_fetch_query_aggregate_and_indexes() -> None:
     assert collection.last_cursor.limit_value == 7
     assert collection.last_cursor.sort_spec == [("timestamp", -1), ("event_id", -1)]
     assert await store.aggregate([])
-    assert await store.aggregate([{"$match": {"event_type": "pageview"}}])
+    assert await store.aggregate([{"$match": {"event_type": "pageview"}}], max_time_ms=5_000)
+    assert collection.last_filter is not None
+    assert collection.last_filter["maxTimeMS"] == 5_000
 
     names = await store.ensure_indexes()
     assert names == tuple(index.name for index in REQUIRED_INDEXES)
@@ -250,6 +252,8 @@ async def test_store_translates_driver_errors_and_rejects_bad_pipelines() -> Non
         await MongoEventStore(FakeCollection()).aggregate([1])  # type: ignore[arg-type]
     with pytest.raises(InvalidAggregation):
         await MongoEventStore(FakeCollection()).aggregate(None)  # type: ignore[arg-type]
+    with pytest.raises(InvalidAggregation):
+        await MongoEventStore(FakeCollection()).aggregate([], max_time_ms=0)
     assert _validated_pipeline([]) == []
 
 

@@ -249,11 +249,17 @@ class MongoEventStore:
             raise MongoDependencyError("query_events") from None
 
     async def aggregate(
-        self, pipeline: Sequence[Mapping[str, object]]
+        self,
+        pipeline: Sequence[Mapping[str, object]],
+        *,
+        max_time_ms: int | None = None,
     ) -> list[Mapping[str, object]]:
         stages = _validated_pipeline(pipeline)
+        if max_time_ms is not None and max_time_ms <= 0:
+            raise InvalidAggregation("aggregation max time must be positive")
         try:
-            cursor = await cast(Any, self._collection).aggregate(stages)
+            options = {} if max_time_ms is None else {"maxTimeMS": max_time_ms}
+            cursor = await cast(Any, self._collection).aggregate(stages, **options)
             documents = await cursor.to_list(length=None)
         except PyMongoError:
             raise MongoDependencyError("aggregate_events") from None

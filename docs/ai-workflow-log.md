@@ -156,3 +156,25 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** approve the feature with one non-blocking suggestion to add a live Mongo route test after lifecycle ownership is implemented; keep the current fake-store test boundary for this feature.
 - **Artifacts/code affected:** `specs/008-event-query-api/reviews/review-20260918-203000.md`, tasks, traceability, and the final gate records.
 - **Validation/review performed:** 31 focused tests passed; full unit suite passed 134 tests with two existing dependency warnings; integration markers skipped 2 without external services; failure marker selection was empty-safe; Ruff format/lint, strict mypy, and diff check passed.
+
+### 2026-09-18 — MongoDB analytics implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify and implement bounded canonical MongoDB statistics for hour/day/week buckets.
+- **AI proposal/contribution:** defined a UTC-only inclusive range contract, previous-24-hour default, Monday week semantics, typed response points, early `$match`, `$dateTrunc` grouping, stable sorting, and unit/real-Mongo test boundaries.
+- **What was useful:** separating effective-range validation from pipeline construction made default-window behavior deterministic and let tests assert the exact aggregation shape without loading raw events.
+- **Pushback/correction:** raw Python aggregation was rejected by the request and constitution; the route delegates all grouping to `MongoEventStore.aggregate` and maps malformed documents to the safe dependency boundary.
+- **Human decision and rationale:** keep client lifecycle ownership deferred, so the route returns a retryable 503 when `app.state.event_store` is unavailable while remaining independently testable.
+- **Artifacts/code affected:** `specs/009-mongodb-analytics/`, `src/event_platform/api/routes/stats.py`, `src/event_platform/main.py`, `tests/unit/test_mongodb_analytics.py`, `tests/integration/test_mongodb_analytics_integration.py`, and documentation.
+- **Validation/review performed:** focused analytics tests pass 21/21; real Mongo integration is present and runs when `MONGO_URI` is configured; Ruff and strict mypy pass.
+
+### 2026-09-18 — Feature 009 review gate and merge preparation
+
+- **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.
+- **Task:** move MongoDB analytics through convergence, review, and final quality gates.
+- **AI proposal/contribution:** reviewed the aggregation route, canonical storage boundary, UTC BSON decoding, result cardinality, and execution lifetime against the Feature 009 contract.
+- **What was useful:** review caught that the response point cap alone did not bound a high-cardinality Mongo operation; the typed repository now passes a finite `maxTimeMS` deadline while the route still rejects oversized results without partial counts.
+- **Pushback/correction:** naive BSON timestamps, same-bucket ordering, exact inclusive endpoints, safe error envelopes, and stale test-count records were corrected before approval.
+- **Human decision and rationale:** keep Mongo client lifecycle ownership deferred to the later lifecycle feature; a missing store remains a safe retryable 503, while the direct real-Mongo aggregation path is covered here.
+- **Artifacts/code affected:** `specs/009-mongodb-analytics/reviews/`, `src/event_platform/api/routes/stats.py`, `src/event_platform/storage/mongo.py`, analytics and storage tests, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** 21 focused analytics tests, 30 analytics/storage tests, 155 full unit tests, 3 real-Mongo integration tests, and empty-safe failure selection passed; Ruff format/lint, strict mypy, and diff checks passed. Review findings: 0 blockers, 0 warnings, 0 suggestions after remediation.
