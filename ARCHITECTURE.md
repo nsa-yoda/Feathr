@@ -262,6 +262,15 @@ The default TTL should be short (target: 10 seconds, configurable). A realtime d
 
 If Redis is unavailable, compute from Mongo and return with `X-Cache: BYPASS`; do not fail the endpoint solely because the cache is unavailable.
 
+Feature 013 implements this boundary in `src/event_platform/cache/realtime.py` and
+`src/event_platform/api/routes/realtime_stats.py`. The key is versioned by schema,
+window length, and the bounded event-type cardinality,
+payloads are validated deterministic JSON without raw event metadata, the default
+window is five minutes (bounded to 1..60), the default TTL is ten seconds, and a
+bounded process-local single-flight lock coalesces same-key misses. Mongo remains
+the canonical aggregation source; Redis read/write/decode errors emit a structured
+degraded cache event and return the Mongo result with `BYPASS`.
+
 At much higher write/read volume, evolve toward incremental counters or materialized rolling windows rather than repeatedly re-running the same Mongo aggregation.
 
 ## 13. Mandatory rate limiting

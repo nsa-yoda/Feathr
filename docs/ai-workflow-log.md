@@ -211,3 +211,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** rebuild status is read-only over HTTP, while mutating CLI execution requires explicit `--confirm` and an application dependency harness.
 - **Artifacts/code affected:** `specs/012-elasticsearch-online-rebuild/`, rebuild/search/storage modules, status route, tests, architecture, traceability, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** 10 focused rebuild tests pass with one explicit service-gated integration skip; 212 unit tests pass when the process smoke test has socket permission (the sandboxed run had 211 passes plus one environment `PermissionError`); failure tests pass 4/4, integration selection is 6 skips without external services, Ruff format/lint, strict mypy, and diff checks pass. Final review report: `specs/012-elasticsearch-online-rebuild/reviews/review-20260919-030000.md`.
+
+### 2026-09-19 — Realtime statistics cache implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify and implement Feature 013's Redis cache-aside realtime statistics endpoint.
+- **AI proposal/contribution:** added bounded five-minute rolling UTC summaries, versioned deterministic cache keys/payloads, async Redis adapter, Mongo canonical aggregation, safe `HIT`/`MISS`/`BYPASS` headers, and bounded single-flight coalescing.
+- **What was useful:** keeping cache serialization and Redis failure translation behind a cache port made malformed entries, TTLs, and outage behavior deterministic in unit and failure tests.
+- **Pushback/correction:** Redis remains disposable and never gates canonical statistics; a Redis read/write/decode failure computes from Mongo and exposes `BYPASS` rather than returning a dependency error.
+- **Human decision and rationale:** use a bounded 1..60 minute query window with a five-minute default and ten-second cache TTL; avoid a distributed lock or materialized counter subsystem for this single-process demo.
+- **Artifacts/code affected:** `specs/013-realtime-stats-cache/`, `src/event_platform/cache/realtime.py`, `src/event_platform/api/routes/realtime_stats.py`, settings/lifespan wiring, Redis dependency/lockfile, tests, architecture, API contract, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** Feature 013 focused coverage passes 21 unit behavior tests, 6 failure tests, and one explicit Mongo/Redis integration skip without configured services; the full repository gates pass 231 unit tests, 10 failure tests, and 7 explicit integration skips. Ruff format/lint, strict mypy, and git diff checks pass. Staff, code, comments, tests, errors, and types reviews found no remaining blockers, warnings, or suggestions after remediation. Final report: `specs/013-realtime-stats-cache/reviews/review-20260919-043000.md`.

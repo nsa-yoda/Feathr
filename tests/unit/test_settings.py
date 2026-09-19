@@ -59,6 +59,11 @@ def test_settings_reject_unsupported_values(monkeypatch: pytest.MonkeyPatch) -> 
     with pytest.raises(ValidationError):
         ServiceSettings()
 
+    monkeypatch.delenv("EVENT_PLATFORM_LOG_LEVEL", raising=False)
+    monkeypatch.setenv("EVENT_PLATFORM_REDIS_URL", "http://not-redis.example")
+    with pytest.raises(ValidationError):
+        ServiceSettings()
+
     monkeypatch.delenv("EVENT_PLATFORM_ENV")
     monkeypatch.setenv("EVENT_PLATFORM_LOG_LEVEL", "LOUD")
     with pytest.raises(ValidationError):

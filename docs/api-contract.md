@@ -32,7 +32,12 @@ Required safe query string; optional stable filters may be added. Search only us
 
 ## GET /events/stats/realtime
 
-Lightweight configured rolling window summary. Include cache outcome header and generated/window timestamps.
+Lightweight rolling UTC summary. `window_minutes` is optional and bounded to 1..60
+(default 5). The response contains `schema_version`, `total_events`, sorted
+`by_event_type`, `generated_at`, inclusive `window_start`/`window_end`, and
+`request_id`. `X-Cache` is `HIT`, `MISS`, or `BYPASS`; Redis is a disposable
+cache and Mongo remains the canonical source. Invalid windows return 422 and
+Mongo failures return a safe retryable 503.
 
 ## Health/ops
 

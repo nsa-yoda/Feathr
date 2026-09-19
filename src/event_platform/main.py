@@ -11,9 +11,11 @@ from event_platform.api.problems import register_problem_handlers
 from event_platform.api.routes.events import router as events_router
 from event_platform.api.routes.health import router as health_router
 from event_platform.api.routes.query import router as query_router
+from event_platform.api.routes.realtime_stats import router as realtime_stats_router
 from event_platform.api.routes.rebuild import router as rebuild_router
 from event_platform.api.routes.search import router as search_router
 from event_platform.api.routes.stats import router as stats_router
+from event_platform.cache.realtime import RedisCache
 from event_platform.core.logging import configure_logging
 from event_platform.core.settings import ServiceSettings, SettingsStartupError, load_settings
 from event_platform.queue import InProcessQueue
@@ -41,11 +43,35 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             raise
 
         configure_logging(app.state.settings.log_level)
-        app.state.queue = InProcessQueue(
-            capacity=app.state.settings.queue_capacity,
-            visibility_timeout=app.state.settings.queue_visibility_timeout,
-            send_timeout=app.state.settings.queue_send_timeout,
-        )
+        redis_client = None
+        try:
+            app.state.queue = InProcessQueue(
+                capacity=app.state.settings.queue_capacity,
+                visibility_timeout=app.state.settings.queue_visibility_timeout,
+                send_timeout=app.state.settings.queue_send_timeout,
+            )
+            if app.state.settings.redis_url:
+                from redis.asyncio import Redis
+
+                redis_client = Redis.from_url(app.state.settings.redis_url)
+                app.state.realtime_cache = RedisCache(redis_client)
+            else:
+                app.state.realtime_cache = None
+        except (TypeError, ValueError) as error:
+            if redis_client is not None:
+                await redis_client.aclose()
+            await app.state.queue.close()
+            logger.error(
+                "service startup failed",
+                extra={
+                    "event": "service.startup_failed",
+                    "error_type": type(error).__name__,
+                    "error_fields": ["EVENT_PLATFORM_REDIS_URL"],
+                },
+            )
+            raise SettingsStartupError(
+                "Invalid Redis configuration.", fields=("EVENT_PLATFORM_REDIS_URL",)
+            ) from None
         logger.info(
             "service startup complete",
             extra={
@@ -57,6 +83,8 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             yield
         finally:
             await app.state.queue.close()
+            if redis_client is not None:
+                await redis_client.aclose()
             logger.info("service shutdown complete", extra={"event": "service.shutdown"})
             del app.state.settings
             del app.state.queue
@@ -74,4 +102,5 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     app.include_router(search_router)
     app.include_router(rebuild_router)
     app.include_router(stats_router)
+    app.include_router(realtime_stats_router)
     return app
