@@ -53,7 +53,9 @@ def test_console_uses_same_origin_api_and_safe_problem_rendering() -> None:
 
 def test_generator_burst_is_bounded_and_problems_are_visible() -> None:
     text = INDEX.read_text()
-    assert "Math.min(20" in text
+    assert "MAX_BURST = 500" in text
+    assert "BURST_WINDOW_MS = 5000" in text
+    assert 'name="burst" type="number" min="1" max="500"' in text
     assert "body.event_id" in text
     assert "body.request_id" in text
     assert "Metadata must be valid JSON" in text
@@ -65,7 +67,7 @@ def test_console_has_behavioral_contract_markers_for_states_and_requests() -> No
     assert "Promise.all" in text and "health/ready" in text and "events/stats/realtime" in text
     assert "Refreshing dashboard…" in text
     assert "Refresh failed;" in text
-    assert "Math.min(20" in text and "for (let i=0;i<count;i++)" in text
+    assert "MAX_BURST = 500" in text and "pacedBurst(count" in text
     assert "response.status" in text and "response.ok" in text
     assert "No canonical events match" in text and "No projected events found yet" in text
     assert "Retry" in text and 'role="alert"' in text
@@ -98,9 +100,9 @@ def test_browser_free_javascript_harness_exercises_client_helpers(tmp_path) -> N
         "function element(id){if(!elements.has(id)) elements.set(id,{id,innerHTML:'',onclick:null,querySelectorAll:()=>[]});return elements.get(id);}"  # noqa: E501
         "const document={getElementById:element}; let calls=[]; let mode='ok';"  # noqa: E501
         "const json=(body,status=200,type='application/json')=>({ok:status>=200&&status<300,status,headers:{get:(k)=>type},text:async()=>type.includes('json')?JSON.stringify(body):body});"  # noqa: E501
-        "const context={window:{},URLSearchParams,console,fetch:async(url,opts)=>{calls.push({url,opts}); if(mode==='pending') return new Promise(()=>{}); if(mode==='fail') return json({status:503,detail:'down',request_id:'r'},503); if(url.includes('/metrics')) return json('# HELP queue\\nqueue 1',200,'text/plain'); if(url.includes('/events/stats/realtime')) return json({total_events:2,by_event_type:{demo:2},generated_at:'now'}); if(url.includes('/health')) return json({status:'healthy',components:{queue:{state:'healthy'}}}); if(url.includes('/events/search/rebuild')) return json({phase:'idle'}); if(opts&&opts.method==='POST') return json({event_id:'e',request_id:'r',status:'queued'},202); return json({items:[],next_cursor:null});}};"  # noqa: E501
+        "const context={window:{},URLSearchParams,console,setTimeout:(fn)=>{fn();return 0;},fetch:async(url,opts)=>{calls.push({url,opts}); if(mode==='pending') return new Promise(()=>{}); if(mode==='fail') return json({status:503,detail:'down',request_id:'r'},503); if(url.includes('/metrics')) return json('# HELP queue\\nqueue 1',200,'text/plain'); if(url.includes('/events/stats/realtime')) return json({total_events:2,by_event_type:{demo:2},generated_at:'now'}); if(url.includes('/health')) return json({status:'healthy',components:{queue:{state:'healthy'}}}); if(url.includes('/events/search/rebuild')) return json({phase:'idle'}); if(opts&&opts.method==='POST') return json({event_id:'e',request_id:'r',status:'queued'},202); return json({items:[],next_cursor:null});}};"  # noqa: E501
         "vm.createContext(context); vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),context); context.document=document; const h=context.window.__feathrConsole;"  # noqa: E501
-        "(async()=>{if(h.boundedBurst(99)!==20||h.boundedBurst(0)!==1)process.exit(1); const q=h.eventQuery({user_id:'u',event_type:'t'},'cursor'); if(!q.includes('user_id=u')||!q.includes('event_type=t')||!q.includes('cursor=cursor'))process.exit(2); if(!h.searchQuery({q:'x',user_id:'u'}).includes('user_id=u'))process.exit(3); if(h.esc('<secret>')!=='&lt;secret&gt;')process.exit(4); await h.generator(); const form=element('generator-form'); context.FormData=class{constructor(){ }get(k){return {event_type:'demo',timestamp:'',user_id:'u',source_url:'https://e.invalid',metadata:'{}',burst:'99'}[k]}}; await form.onsubmit({preventDefault(){},currentTarget:form}); if(calls.filter(c=>c.opts&&c.opts.method==='POST').length!==20)process.exit(7); await h.dashboard(); mode='fail'; await h.dashboard(); if(!element('app').innerHTML.includes('Refresh failed')||!element('dashboard-retry').onclick)process.exit(8); mode='pending'; h.dashboard(); const pendingHtml=element('app').innerHTML; if(!pendingHtml.includes('Refreshing dashboard')||pendingHtml.includes('Refresh failed'))process.exit(9); })().catch(()=>process.exit(10));"  # noqa: E501
+        "(async()=>{if(h.boundedBurst(999)!==500||h.boundedBurst(0)!==1||h.burstOffset(0,500)!==0||h.burstOffset(499,500)!==5000)process.exit(1); const q=h.eventQuery({user_id:'u',event_type:'t'},'cursor'); if(!q.includes('user_id=u')||!q.includes('event_type=t')||!q.includes('cursor=cursor'))process.exit(2); if(!h.searchQuery({q:'x',user_id:'u'}).includes('user_id=u'))process.exit(3); if(h.esc('<secret>')!=='&lt;secret&gt;')process.exit(4); await h.generator(); const form=element('generator-form'); context.FormData=class{constructor(){ }get(k){return {event_type:'demo',timestamp:'',user_id:'u',source_url:'https://e.invalid',metadata:'{}',burst:'999'}[k]}}; await form.onsubmit({preventDefault(){},currentTarget:form}); if(calls.filter(c=>c.opts&&c.opts.method==='POST').length!==500||element('generator-submit').disabled)process.exit(7); await h.dashboard(); mode='fail'; await h.dashboard(); if(!element('app').innerHTML.includes('Refresh failed')||!element('dashboard-retry').onclick)process.exit(8); mode='pending'; h.dashboard(); const pendingHtml=element('app').innerHTML; if(!pendingHtml.includes('Refreshing dashboard')||pendingHtml.includes('Refresh failed'))process.exit(9); })().catch(()=>process.exit(10));"  # noqa: E501
     )
     result = subprocess.run(
         [node, str(harness), str(script_path)], capture_output=True, text=True, check=False
