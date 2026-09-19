@@ -331,3 +331,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** keep Mongo canonical, treat Elasticsearch as an eventually consistent projection and Redis as optional acceleration, and merge the Compose configuration with the live-gate limitation recorded for a daemon-capable environment.
 - **Artifacts/code affected:** `specs/021-docker-compose-runtime/`, `docker-compose.yml`, `docker/mongo-init.sh`, `frontend/nginx.conf`, `scripts/smoke`, `.env.example`, README, traceability, static Compose tests, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** `docker compose config` passes; static contract tests pass 5/5; format, lint, strict mypy, unit (291), failure (29), and integration (11 explicit skips) gates pass. Live `docker compose up --build -d` and `make smoke` are pending a running Docker daemon.
+
+### 2026-09-19 — Feature 022 Postman reviewer suite
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify, implement, and move the executable Postman reviewer suite through review gates.
+- **AI proposal/contribution:** mapped the twelve-folder reviewer flow to the existing event, health, analytics, search, cache, rate-limit, and problem contracts; added bounded polling, captured variables, a controlled Newman wrapper, demo evidence, and Docker-free contract tests.
+- **What was useful:** Serena searches anchored the collection to the current route and response contracts; review agents caught the fresh-at-least-once event identity behavior, missing request timeouts, unreachable degraded search path, weak 503 fields, and environment-dependent wrapper test.
+- **Pushback/correction:** the repeated idempotency request now asserts accepted queue response keys instead of claiming the API returns the original event ID; degraded search is accepted as a complete problem response; wrapper tests use controlled fake Newman executables and verify failure propagation.
+- **Human decision and rationale:** preserve the API's documented 202 queue semantics and treat Newman/live API execution as a separate runtime gate when the local tool or daemon is unavailable.
+- **Artifacts/code affected:** `postman/`, `scripts/postman`, `Makefile`, Postman README, README quickstart, Feature 022 spec artifacts, collection contract tests, traceability, and this workflow log.
+- **Validation/review performed:** focused Postman contract tests pass; full repository gates and the Newman availability result are recorded in `CODEX_WORK.LOG` and the Feature 022 staff report.

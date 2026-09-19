@@ -1,0 +1,642 @@
+{
+  "info": {
+    "name": "Distributed Event Processing Platform",
+    "_postman_id": "feathr-022-reviewer-suite",
+    "description": "Reviewer acceptance suite for Feature 022. Run folders in numeric order against a healthy API.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "pollDeadlineMs",
+      "value": "30000"
+    },
+    {
+      "key": "pollIntervalMs",
+      "value": "250"
+    },
+    {
+      "key": "pollRequestTimeoutMs",
+      "value": "5000"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Environment Verification",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health/live"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"health response is successful\", () => pm.expect(pm.response.code).to.eql(200));",
+                  "pm.test(\"liveness is alive\", () => pm.expect(body.status).to.eql(\"alive\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Readiness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health/ready"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"health response is successful\", () => pm.expect(pm.response.code).to.eql(200));",
+                  "pm.test(\"readiness has component state\", () => pm.expect(body.components).to.be.an(\"object\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Component Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health/components"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"health response is successful\", () => pm.expect(pm.response.code).to.eql(200));",
+                  "pm.test(\"component health has status\", () => pm.expect(body.status).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/metrics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"metrics endpoint is successful\", () => pm.expect(pm.response.code).to.eql(200));",
+                  "pm.test(\"metrics is Prometheus text\", () => pm.expect(pm.response.text()).to.include(\"# HELP\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Event Ingestion",
+      "item": [
+        {
+          "name": "Ingest event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/events",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"{{eventType}}\",\n  \"timestamp\": \"{{eventTimestamp}}\",\n  \"user_id\": \"{{eventUserId}}\",\n  \"source_url\": \"https://example.invalid/postman\",\n  \"metadata\": {\"source\": \"postman-reviewer-suite\", \"run\": \"{{idempotencyKey}}\"}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;",
+                  "pm.environment.set(\"eventUserId\", `postman-user-${suffix}`);",
+                  "pm.environment.set(\"eventTimestamp\", new Date().toISOString());",
+                  "pm.environment.set(\"idempotencyKey\", `postman-${suffix}`);",
+                  "pm.environment.set(\"eventType\", \"postman.demo\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"ingestion returns 202\", () => pm.expect(pm.response.code).to.eql(202));",
+                  "pm.test(\"ingestion response keys exist\", () => { pm.expect(body.event_id).to.be.a(\"string\"); pm.expect(body.request_id).to.be.a(\"string\"); pm.expect(body.status).to.eql(\"queued\"); });",
+                  "pm.environment.set(\"eventId\", body.event_id);",
+                  "pm.environment.set(\"requestId\", body.request_id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 Idempotency Dedup",
+      "item": [
+        {
+          "name": "Repeat same event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/events",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"{{eventType}}\",\n  \"timestamp\": \"{{eventTimestamp}}\",\n  \"user_id\": \"{{eventUserId}}\",\n  \"source_url\": \"https://example.invalid/postman\",\n  \"metadata\": {\"source\": \"postman-reviewer-suite\", \"run\": \"{{idempotencyKey}}\"}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"duplicate request remains accepted\", () => pm.expect(pm.response.code).to.eql(202));",
+                  "pm.test(\"repeat response keys exist\", () => { pm.expect(body.event_id).to.be.a(\"string\"); pm.expect(body.request_id).to.be.a(\"string\"); pm.expect(body.status).to.eql(\"queued\"); });",
+                  "pm.environment.set(\"duplicateEventId\", body.event_id);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 Event Queries",
+      "item": [
+        {
+          "name": "Query captured event",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events?user_id={{eventUserId}}&limit=50"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const deadline = Date.now() + Number(pm.environment.get(\"pollDeadlineMs\") || 30000);",
+                  "const interval = Number(pm.environment.get(\"pollIntervalMs\") || 250);",
+                  "const base = pm.environment.get(\"baseUrl\");",
+                  "const user = pm.environment.get(\"eventUserId\");",
+                  "const expected = pm.environment.get(\"eventId\");",
+                  "function poll() {",
+                  "  if (Date.now() >= deadline) { pm.test(\"canonical event appears before deadline\", () => pm.expect.fail(\"query polling deadline exceeded\")); return; }",
+                  "  pm.sendRequest({url: `${base}/events?user_id=${encodeURIComponent(user)}&limit=50`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000)}, (error, response) => {",
+                  "    if (!error && response.code === 200) { const body = response.json(); const found = (body.items || []).some(item => item.event_id === expected); if (found) { pm.environment.set(\"nextCursor\", body.next_cursor || \"\"); pm.test(\"canonical query contains captured event\", () => pm.expect(found).to.eql(true)); return; } }",
+                  "    setTimeout(poll, interval);",
+                  "  });",
+                  "}",
+                  "poll();"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid cursor",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events?cursor=not-a-signed-cursor"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"problem status matches HTTP status\", () => pm.expect(body.status).to.eql(pm.response.code));",
+                  "pm.test(\"problem contract fields exist\", () => { pm.expect(body.detail).to.be.a(\"string\"); pm.expect(body.error_code).to.be.a(\"string\"); pm.expect(body.request_id).to.be.a(\"string\"); });",
+                  "pm.test(\"invalid cursor is 422\", () => pm.expect(pm.response.code).to.eql(422));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 Analytics",
+      "item": [
+        {
+          "name": "Hourly event statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events/stats?bucket=hour"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"statistics returns 200\", () => pm.expect(pm.response.code).to.eql(200));",
+                  "pm.test(\"statistics schema is bounded\", () => { pm.expect(body.bucket).to.eql(\"hour\"); pm.expect(body.timezone).to.eql(\"UTC\"); pm.expect(body.points).to.be.an(\"array\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 Elasticsearch Search",
+      "item": [
+        {
+          "name": "Search captured event",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events/search?q=postman.demo&limit=50"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const deadline = Date.now() + Number(pm.environment.get(\"pollDeadlineMs\") || 30000);",
+                  "const interval = Number(pm.environment.get(\"pollIntervalMs\") || 250);",
+                  "const base = pm.environment.get(\"baseUrl\"); const expected = pm.environment.get(\"eventId\");",
+                  "function poll() {",
+                  "  if (Date.now() >= deadline) { pm.test(\"search event appears before deadline\", () => pm.expect.fail(\"search polling deadline exceeded\")); return; }",
+                  "  pm.sendRequest({url: `${base}/events/search?q=postman.demo&limit=50`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000)}, (error, response) => {",
+                  "  if (!error && response.code === 503) { const body = response.json(); pm.test(\"search degraded response is a problem\", () => { pm.expect(body.status).to.eql(503); pm.expect(body.detail).to.be.a(\"string\"); pm.expect(body.error_code).to.be.a(\"string\"); pm.expect(body.request_id).to.be.a(\"string\"); }); return; }",
+                  "    if (!error && response.code === 200) { const body = response.json(); const found = (body.items || []).some(item => item.event_id === expected); if (found) { pm.test(\"search contains captured event\", () => pm.expect(found).to.eql(true)); return; } }",
+                  "    setTimeout(poll, interval);",
+                  "  });",
+                  "}",
+                  "poll();"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 Realtime Cache",
+      "item": [
+        {
+          "name": "Realtime statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events/stats/realtime?window_minutes=5"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"realtime statistics returns 200\", () => pm.expect(pm.response.code).to.eql(200));",
+                  "pm.test(\"realtime response has captured event type and cache outcome\", () => { pm.expect(body.by_event_type).to.be.an(\"object\"); pm.expect(body.by_event_type[\"postman.demo\"]).to.be.greaterThan(0); pm.expect(body.total_events).to.be.greaterThan(0); pm.expect([\"HIT\", \"MISS\", \"BYPASS\"]).to.include(pm.response.headers.get(\"X-Cache\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Realtime statistics repeat",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events/stats/realtime?window_minutes=5"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"repeat realtime statistics returns 200\", () => pm.expect(pm.response.code).to.eql(200));",
+                  "pm.test(\"repeat response keeps captured event statistics\", () => { pm.expect(body.by_event_type[\"postman.demo\"]).to.be.greaterThan(0); pm.expect([\"HIT\", \"MISS\", \"BYPASS\"]).to.include(pm.response.headers.get(\"X-Cache\")); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 Validation & Errors",
+      "item": [
+        {
+          "name": "Invalid event body",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/events",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"event_type\":\"\",\"timestamp\":\"not-a-date\",\"user_id\":\"\",\"source_url\":\"not-a-url\",\"metadata\":{}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"problem status matches HTTP status\", () => pm.expect(body.status).to.eql(pm.response.code));",
+                  "pm.test(\"problem contract fields exist\", () => { pm.expect(body.detail).to.be.a(\"string\"); pm.expect(body.error_code).to.be.a(\"string\"); pm.expect(body.request_id).to.be.a(\"string\"); });",
+                  "pm.test(\"invalid event is 422\", () => pm.expect(pm.response.code).to.eql(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid statistics bucket",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events/stats?bucket=minute"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"problem status matches HTTP status\", () => pm.expect(body.status).to.eql(pm.response.code));",
+                  "pm.test(\"problem contract fields exist\", () => { pm.expect(body.detail).to.be.a(\"string\"); pm.expect(body.error_code).to.be.a(\"string\"); pm.expect(body.request_id).to.be.a(\"string\"); });",
+                  "pm.test(\"invalid bucket is 422\", () => pm.expect(pm.response.code).to.eql(422));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 Rate Limiting",
+      "item": [
+        {
+          "name": "Rate-limit response contract",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events?limit=1"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"request is successful or rate limited\", () => pm.expect([200, 429]).to.include(pm.response.code));",
+                  "if (pm.response.code === 429) { pm.test(\"429 has Retry-After\", () => pm.expect(Number(pm.response.headers.get(\"Retry-After\"))).to.be.greaterThan(0)); }",
+                  "if (pm.response.code === 200) { pm.test(\"successful response has items\", () => pm.expect(pm.response.json().items).to.be.an(\"array\")); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "429 burst contract",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events?limit=1"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const burst = Math.max(Number(pm.environment.get(\"rateLimitBurst\") || 180), 121);",
+                  "const deadline = Date.now() + Number(pm.environment.get(\"pollDeadlineMs\") || 30000);",
+                  "let count = 0; let got429 = false;",
+                  "function sendNext() {",
+                  "  if (Date.now() >= deadline) { pm.test(\"rate-limit burst completes before deadline\", () => pm.expect.fail(\"429 burst deadline exceeded\")); return; }",
+                  "  if (count >= burst) { pm.test(\"rate-limit burst observes 429\", () => pm.expect(got429).to.eql(true)); return; }",
+                  "  pm.sendRequest({url: `${pm.environment.get(\"baseUrl\")}/events?limit=1`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000)}, (error, response) => {",
+                  "    if (response.code === 429) { got429 = true; pm.expect(Number(response.headers.get(\"Retry-After\"))).to.be.greaterThan(0); }",
+                  "    count += 1; sendNext();",
+                  "  });",
+                  "}",
+                  "sendNext();"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09 Failure & Dependency-visible",
+      "item": [
+        {
+          "name": "Search dependency-visible response",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events/search?q=postman.demo&limit=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"search is healthy or safely degraded\", () => pm.expect([200, 503]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) { pm.test(\"healthy search has items\", () => pm.expect(pm.response.json().items).to.be.an(\"array\")); } else { const body = pm.response.json(); pm.test(\"degraded search is a problem\", () => { pm.expect(body.status).to.eql(503); pm.expect(body.detail).to.be.a(\"string\"); pm.expect(body.error_code).to.be.a(\"string\"); pm.expect(body.request_id).to.be.a(\"string\"); }); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10 Health & Readiness",
+      "item": [
+        {
+          "name": "Readiness contract",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health/ready"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"readiness is 200 or dependency-degraded 503\", () => pm.expect([200, 503]).to.include(pm.response.code));",
+                  "pm.test(\"readiness exposes canonical components\", () => { pm.expect(body.components).to.be.an(\"object\"); pm.expect(body.components.mongo).to.be.an(\"object\"); pm.expect(body.components.queue).to.be.an(\"object\"); pm.expect(body.components.persistence_worker).to.be.an(\"object\"); });",
+                  "if (pm.response.code === 503) { pm.test(\"degraded readiness has a problem contract\", () => { pm.expect(body.status).to.eql(503); pm.expect(body.detail).to.be.a(\"string\"); pm.expect(body.error_code).to.be.a(\"string\"); pm.expect(body.request_id).to.be.a(\"string\"); }); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "11 End-to-End Demo Scenario",
+      "item": [
+        {
+          "name": "Demo canonical event",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events?user_id={{eventUserId}}&limit=50"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"demo query returns 200\", () => pm.expect(pm.response.code).to.eql(200));",
+                  "pm.test(\"demo query returns captured event\", () => pm.expect((body.items || []).some(item => item.event_id === pm.environment.get(\"eventId\"))).to.eql(true));",
+                  "pm.test(\"demo query has request id\", () => pm.expect(body.request_id).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Demo search evidence",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events/search?q=postman.demo&limit=50"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"demo search is healthy or safely degraded\", () => pm.expect([200, 503]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) { pm.test(\"demo search contains captured event\", () => pm.expect((body.items || []).some(item => item.event_id === pm.environment.get(\"eventId\"))).to.eql(true)); } else { pm.test(\"demo search problem contract\", () => { pm.expect(body.status).to.eql(503); pm.expect(body.detail).to.be.a(\"string\"); pm.expect(body.error_code).to.be.a(\"string\"); pm.expect(body.request_id).to.be.a(\"string\"); }); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Demo realtime statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/events/stats/realtime?window_minutes=5"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"realtime statistics returns 200\", () => pm.expect(pm.response.code).to.eql(200));",
+                  "pm.test(\"realtime response has captured event type and cache outcome\", () => { pm.expect(body.by_event_type).to.be.an(\"object\"); pm.expect(body.by_event_type[\"postman.demo\"]).to.be.greaterThan(0); pm.expect(body.total_events).to.be.greaterThan(0); pm.expect([\"HIT\", \"MISS\", \"BYPASS\"]).to.include(pm.response.headers.get(\"X-Cache\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Demo metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/metrics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"demo metrics returns 200\", () => pm.expect(pm.response.code).to.eql(200));",
+                  "pm.test(\"demo metrics includes HTTP family\", () => pm.expect(pm.response.text()).to.include(\"http_requests\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

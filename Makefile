@@ -28,4 +28,4 @@ smoke:
 	./scripts/smoke
 
 postman:
-	@echo "Postman reviewer suite is provided by Feature 022; run its documented collection when available."
+	./scripts/postman

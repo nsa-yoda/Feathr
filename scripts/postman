@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+collection='postman/Distributed Event Processing Platform.postman_collection.json'
+environment='postman/Local Docker.postman_environment.json'
+if ! command -v newman >/dev/null; then
+  echo 'postman gate requires Newman on PATH (npm install --global newman)' >&2
+  exit 2
+fi
+if [[ ! -f "$collection" || ! -f "$environment" ]]; then
+  echo 'postman collection or environment is missing' >&2
+  exit 2
+fi
+
+exec newman run "$collection" -e "$environment" "$@"

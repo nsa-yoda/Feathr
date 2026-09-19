@@ -1,6 +1,6 @@
 # Distributed Event Processing Platform
 
-> **Current state:** Features 001-021 provide the API, data services, lifecycle controls, failure coverage, and reviewer Docker Compose configuration. Static Compose validation is complete; live startup and smoke require a running Docker daemon. The full reviewer UI and Postman workflow are delivered by later features; see `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
+> **Current state:** Features 001-022 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, and executable Postman reviewer suite. Static Compose/Postman validation is complete; live startup, smoke, and Newman execution require their runtime tools. The full reviewer UI is delivered by a later feature; see `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
 
 A production-oriented event ingestion, processing, search, analytics, caching, and reviewer-demo platform built with FastAPI, MongoDB, Elasticsearch, Redis, and an assessment-mandated in-process SQS-style queue.
 
@@ -67,14 +67,21 @@ The API and UI containers run as non-root users. Redis is unauthenticated in the
 local defaults; set `REDIS_PASSWORD` and update `EVENT_PLATFORM_REDIS_URL` in
 `.env` together when a password is required.
 
-Later reviewer features will extend this quick start with:
+## Postman reviewer suite
 
-- Demo UI URL
-- FastAPI/OpenAPI URL
-- health URLs
-- Prometheus metrics URL
-- Postman import/run instructions
-- unit/integration/failure test commands
+Import the v2.1 collection and local environment from `postman/`, then run the
+numbered folders in order. The collection captures an event ID and uses bounded
+polling for canonical query and Elasticsearch search. Newman users can run
+`make postman`; the wrapper exits clearly when Newman or the API is unavailable.
+
+The remaining feature work will add the demo UI, CI automation, and final
+submission reconciliation. The current reviewer URLs are:
+
+- API docs: `http://localhost:8000/docs`
+- Liveness: `http://localhost:8000/health/live`
+- Readiness: `http://localhost:8000/health/ready`
+- Component health: `http://localhost:8000/health/components`
+- Metrics: `http://localhost:8000/metrics`
 
 The final submission documentation will also include:
 
