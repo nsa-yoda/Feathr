@@ -19,4 +19,4 @@
 - [x] T009 Run specialized/staff reviews and remediate findings.
 - [x] T010 Run repository and UI/static gates; record unavailable live browser/Compose checks.
 - [x] T011 Create approved staff report and complete tasks.
-- [ ] T012 Commit implementation, merge-gate, and postcommit work-log evidence on main.
+- [x] T012 Commit implementation, merge-gate, and postcommit work-log evidence on main.
