@@ -54,6 +54,10 @@ _EXTRA_FIELDS = (
     "reason_code",
     "classification",
     "delay_seconds",
+    "operation",
+    "route_class",
+    "outcome",
+    "backend",
 )
 
 

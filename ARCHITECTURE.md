@@ -281,6 +281,12 @@ Redis failure does not disable protection. The application switches to a conserv
 
 Return `429 Too Many Requests` with `Retry-After` and useful rate-limit headers. Health probes are exempt or separately protected to avoid defeating orchestration.
 
+The implementation lives in `src/event_platform/rate_limit/` with atomic Redis
+Lua token buckets, bounded monotonic local fallback, direct-peer identity by
+default, and route-class middleware at
+`src/event_platform/api/middleware/rate_limit.py`. Redis failures emit a
+structured degraded event and continue with the conservative local policy.
+
 The service must not trust `X-Forwarded-For` unless configured trusted proxy hops make that header authoritative.
 
 ## 14. Failure modes

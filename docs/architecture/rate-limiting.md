@@ -18,4 +18,10 @@ By default identity is socket peer address. Only when trusted proxy hops are con
 
 ## Response headers
 
-Define and test consistent `Retry-After`; optionally include `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` or the chosen well-documented equivalents. Never include raw Redis keys.
+Define and test consistent `Retry-After`; include `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`. Never include raw Redis keys.
+
+The implementation is split between `src/event_platform/rate_limit/models.py`
+for policy and token math, `redis_bucket.py` for the atomic Lua operation,
+`local_bucket.py` for the bounded degraded path, `identity.py` for peer/proxy
+normalization, and `src/event_platform/api/middleware/rate_limit.py` for HTTP
+classification and headers. Health and metrics are exempt by default.

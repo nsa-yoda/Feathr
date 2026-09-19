@@ -16,7 +16,7 @@ Success: `202 Accepted`.
 
 Response includes `event_id`, `status: queued`, `request_id`, and a statement/field that does not imply durable completion.
 
-Validation failures: 422 or a consistently chosen 400/422 problem response. Queue saturation: 503 + `Retry-After`. Rate limit: 429 + `Retry-After`.
+Validation failures: 422 or a consistently chosen 400/422 problem response. Queue saturation: 503 + `Retry-After`. Rate limit: 429 + `Retry-After`, `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`. Limited successful responses include the three `RateLimit-*` headers. Health and metrics are exempt by default; Redis failures use the conservative bounded local limiter and emit a structured degraded event.
 
 ## GET /events
 

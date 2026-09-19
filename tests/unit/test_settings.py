@@ -71,6 +71,23 @@ def test_settings_reject_unsupported_values(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.unit
+def test_settings_reject_pathological_rate_refill(monkeypatch: pytest.MonkeyPatch) -> None:
+    from event_platform.core.settings import ServiceSettings
+
+    monkeypatch.setenv("EVENT_PLATFORM_RATE_LIMIT_NORMAL_REFILL", "5e-324")
+    with pytest.raises(ValidationError):
+        ServiceSettings()
+
+
+@pytest.mark.unit
+def test_settings_reject_rate_cost_above_capacity() -> None:
+    from event_platform.core.settings import ServiceSettings
+
+    with pytest.raises(ValidationError):
+        ServiceSettings(rate_limit_normal_capacity=1, rate_limit_normal_cost=2)
+
+
+@pytest.mark.unit
 def test_startup_diagnostic_names_field_without_echoing_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

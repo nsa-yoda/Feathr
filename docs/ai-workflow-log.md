@@ -222,3 +222,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** use a bounded 1..60 minute query window with a five-minute default and ten-second cache TTL; avoid a distributed lock or materialized counter subsystem for this single-process demo.
 - **Artifacts/code affected:** `specs/013-realtime-stats-cache/`, `src/event_platform/cache/realtime.py`, `src/event_platform/api/routes/realtime_stats.py`, settings/lifespan wiring, Redis dependency/lockfile, tests, architecture, API contract, traceability, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** Feature 013 focused coverage passes 21 unit behavior tests, 6 failure tests, and one explicit Mongo/Redis integration skip without configured services; the full repository gates pass 231 unit tests, 10 failure tests, and 7 explicit integration skips. Ruff format/lint, strict mypy, and git diff checks pass. Staff, code, comments, tests, errors, and types reviews found no remaining blockers, warnings, or suggestions after remediation. Final report: `specs/013-realtime-stats-cache/reviews/review-20260919-043000.md`.
+
+### 2026-09-19 — Mandatory rate limiting implementation
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify and implement Feature 014's atomic Redis rate limiter with conservative local fallback.
+- **AI proposal/contribution:** added typed route policies and token math, atomic Redis Lua execution, bounded monotonic local state, safe peer/proxy identity extraction, HTTP middleware, standard limit headers, and explicit degraded events.
+- **What was useful:** separating identity, policy math, backend adapters, and middleware made spoofing, concurrency, fallback, and eviction behavior independently testable.
+- **Pushback/correction:** forwarding headers remain untrusted unless trusted proxy hops are explicitly configured; Redis failure uses stricter local protection instead of fail-open admission.
+- **Human decision and rationale:** health and metrics are exempt by default, route keys use templates and hashed identities, and local state has both idle TTL and a hard entry cap.
+- **Artifacts/code affected:** `specs/014-rate-limiting/`, `src/event_platform/rate_limit/`, rate-limit middleware/settings/lifespan wiring, tests, architecture, API contract, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** Feature 014 coverage passes 7 unit tests, 6 failure tests, and one explicit Redis integration skip without configured services; the full repository gates pass 240 unit tests, 16 failure tests, and 8 explicit integration skips. Ruff format/lint, strict mypy, and git diff checks pass. Staff/code/errors/types review findings are closed; manual comments/tests/simplification review found no remaining issues. Final report: `specs/014-rate-limiting/reviews/review-20260918-220949.md`.

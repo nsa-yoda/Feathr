@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from event_platform.api.middleware.rate_limit import RateLimitMiddleware
 from event_platform.api.middleware.request_id import RequestIdMiddleware
 from event_platform.api.problems import register_problem_handlers
 from event_platform.api.routes.events import router as events_router
@@ -19,6 +20,8 @@ from event_platform.cache.realtime import RedisCache
 from event_platform.core.logging import configure_logging
 from event_platform.core.settings import ServiceSettings, SettingsStartupError, load_settings
 from event_platform.queue import InProcessQueue
+from event_platform.rate_limit import LocalTokenBucket, RedisTokenBucket, RouteClass, RoutePolicy
+from event_platform.rate_limit.service import RateLimiter
 
 logger = logging.getLogger("event_platform.lifecycle")
 
@@ -57,6 +60,41 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 app.state.realtime_cache = RedisCache(redis_client)
             else:
                 app.state.realtime_cache = None
+            settings_value = app.state.settings
+            policies = {
+                RouteClass.INGESTION: RoutePolicy(
+                    RouteClass.INGESTION,
+                    settings_value.rate_limit_ingestion_capacity,
+                    settings_value.rate_limit_ingestion_refill,
+                    settings_value.rate_limit_ingestion_cost,
+                ),
+                RouteClass.NORMAL_READ: RoutePolicy(
+                    RouteClass.NORMAL_READ,
+                    settings_value.rate_limit_normal_capacity,
+                    settings_value.rate_limit_normal_refill,
+                    settings_value.rate_limit_normal_cost,
+                ),
+                RouteClass.EXPENSIVE_READ: RoutePolicy(
+                    RouteClass.EXPENSIVE_READ,
+                    settings_value.rate_limit_expensive_capacity,
+                    settings_value.rate_limit_expensive_refill,
+                    settings_value.rate_limit_expensive_cost,
+                ),
+                RouteClass.OPS: RoutePolicy(
+                    RouteClass.OPS,
+                    settings_value.rate_limit_ops_capacity,
+                    settings_value.rate_limit_ops_refill,
+                    settings_value.rate_limit_ops_cost,
+                ),
+            }
+            app.state.rate_limiter = RateLimiter(
+                policies=policies,
+                local_bucket=LocalTokenBucket(
+                    max_entries=settings_value.rate_limit_local_max_entries
+                ),
+                redis_bucket=RedisTokenBucket(redis_client) if redis_client is not None else None,
+                trusted_proxy_hops=settings_value.rate_limit_trusted_proxy_hops,
+            )
         except (TypeError, ValueError) as error:
             if redis_client is not None:
                 await redis_client.aclose()
@@ -88,12 +126,14 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             logger.info("service shutdown complete", extra={"event": "service.shutdown"})
             del app.state.settings
             del app.state.queue
+            del app.state.rate_limiter
 
     app = FastAPI(
         title="Distributed Event Processing Platform",
         debug=False,
         lifespan=lifespan,
     )
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RequestIdMiddleware)
     register_problem_handlers(app)
     app.include_router(health_router)

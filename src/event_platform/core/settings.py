@@ -5,7 +5,7 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from dotenv.parser import parse_stream
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.exceptions import SettingsError
 
@@ -27,6 +27,34 @@ class ServiceSettings(BaseSettings):
     realtime_cache_ttl_seconds: int = Field(default=10, ge=1, le=300)
     realtime_default_window_minutes: int = Field(default=5, ge=1, le=60)
     realtime_max_event_types: int = Field(default=1_000, ge=1, le=1_000)
+    rate_limit_trusted_proxy_hops: int = Field(default=0, ge=0, le=10)
+    rate_limit_local_max_entries: int = Field(default=1_024, ge=1, le=100_000)
+    rate_limit_ingestion_capacity: int = Field(default=30, ge=1, le=100_000)
+    rate_limit_ingestion_refill: float = Field(default=5.0, ge=0.001, le=100_000.0)
+    rate_limit_ingestion_cost: int = Field(default=1, ge=1, le=100_000)
+    rate_limit_normal_capacity: int = Field(default=120, ge=1, le=100_000)
+    rate_limit_normal_refill: float = Field(default=20.0, ge=0.001, le=100_000.0)
+    rate_limit_normal_cost: int = Field(default=1, ge=1, le=100_000)
+    rate_limit_expensive_capacity: int = Field(default=30, ge=1, le=100_000)
+    rate_limit_expensive_refill: float = Field(default=5.0, ge=0.001, le=100_000.0)
+    rate_limit_expensive_cost: int = Field(default=1, ge=1, le=100_000)
+    rate_limit_ops_capacity: int = Field(default=20, ge=1, le=100_000)
+    rate_limit_ops_refill: float = Field(default=2.0, ge=0.001, le=100_000.0)
+    rate_limit_ops_cost: int = Field(default=1, ge=1, le=100_000)
+
+    @field_validator(
+        "rate_limit_ingestion_cost",
+        "rate_limit_normal_cost",
+        "rate_limit_expensive_cost",
+        "rate_limit_ops_cost",
+    )
+    @classmethod
+    def validate_rate_limit_cost(cls, value: int, info: ValidationInfo) -> int:
+        capacity_name = str(info.field_name).replace("_cost", "_capacity")
+        capacity = info.data.get(capacity_name)
+        if isinstance(capacity, int) and value > capacity:
+            raise ValueError(f"{info.field_name} cannot exceed {capacity_name}")
+        return value
 
     @field_validator("redis_url")
     @classmethod
