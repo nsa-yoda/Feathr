@@ -150,8 +150,8 @@ Human judgment remained authoritative. The constitution, ADRs, accepted specific
 Open `http://localhost:3000` after the Compose stack is running. The console
 provides dashboard, event generation, canonical events, eventually consistent
 search, analytics, realtime cache status, and read-only operations views. Event
-bursts are capped at 20 requests and all API errors render their safe problem
-fields.
+bursts are capped at 500 requests, with request starts paced across five seconds,
+and all API errors render their safe problem fields.
 
 The final submission documentation includes:
 

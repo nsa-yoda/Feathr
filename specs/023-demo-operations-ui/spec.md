@@ -39,7 +39,7 @@ A reviewer searches eventually consistent projections, views hour/day/week analy
 
 - **FR-001**: The UI MUST provide dashboard, event generator, events, search, analytics, realtime, and operations views from a common responsive navigation.
 - **FR-002**: Every API-backed view MUST show loading, empty, success, and actionable error states; errors MUST include status/detail/request ID when supplied.
-- **FR-003**: Event generation MUST support one event and a bounded burst capped at 20 requests, with client-side validation and visible 202/event ID/request ID results.
+- **FR-003**: Event generation MUST support one event and a bounded burst capped at 500 requests, pace request starts across five seconds, prevent overlapping submissions, and show visible progress plus 202/event ID/request ID or problem results.
 - **FR-004**: Events MUST support user/event-type filters, cursor pagination, and expandable metadata rendered as formatted JSON.
 - **FR-005**: Search MUST support a query and optional event type/user filters, display an eventual-consistency note, and handle 503 problem responses.
 - **FR-006**: Analytics MUST support hour/day/week selection and display counts by event type; realtime MUST display generated time, totals, and X-Cache outcome.
@@ -61,7 +61,7 @@ A reviewer searches eventually consistent projections, views hour/day/week analy
 - **SC-001**: A reviewer can reach each required view from the navigation in at most two interactions.
 - **SC-002**: Valid single-event submission shows the accepted event ID and request ID within two seconds after the response arrives.
 - **SC-003**: Invalid and unavailable API paths show a visible, readable error with no uncaught browser error in the supported flow.
-- **SC-004**: Burst generation never sends more than 20 requests from one user action.
+- **SC-004**: Burst generation never sends more than 500 requests from one user action, and the first through last request starts span approximately five seconds for bursts larger than one.
 - **SC-005**: UI contract tests verify all required views and state transitions, and the Compose UI asset serves successfully through the documented port.
 
 ## Assumptions and Scope
