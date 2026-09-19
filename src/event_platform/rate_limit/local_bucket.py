@@ -1,24 +1,24 @@
-"""Bounded process-local token-bucket fallback."""
+"""Bounded process-local leaky-bucket fallback."""
 
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from event_platform.rate_limit.models import RateDecision, RoutePolicy, consume_tokens
+from event_platform.rate_limit.models import RateDecision, RoutePolicy, schedule_request
 
 
 @dataclass(slots=True)
 class _State:
-    tokens: float
-    last_refill: float
+    next_slot: float
     last_seen: float
 
 
-class LocalTokenBucket:
+class LocalLeakyBucket:
     def __init__(
         self,
         *,
@@ -47,13 +47,12 @@ class LocalTokenBucket:
         async with self._lock:
             state = self._states.get(key)
             if state is None:
-                state = _State(policy.capacity, now, now)
+                state = _State(now, now)
                 self._states[key] = state
-            tokens, last_refill, allowed, retry, reset = consume_tokens(
-                tokens=state.tokens, last_refill=state.last_refill, now=now, policy=policy
+            next_slot, allowed, remaining, delay, retry = schedule_request(
+                next_slot=state.next_slot, now=now, policy=policy
             )
-            state.tokens = tokens
-            state.last_refill = last_refill
+            state.next_slot = next_slot
             state.last_seen = now
             self._states.move_to_end(key)
             self._evict(now)
@@ -61,10 +60,11 @@ class LocalTokenBucket:
         return RateDecision(
             allowed=allowed,
             limit=int(policy.capacity),
-            remaining=max(0, int(tokens)),
+            remaining=remaining,
             retry_after=retry,
-            reset_at=int(wall_now + max(1, reset - now)),
+            reset_at=int(math.ceil(wall_now + delay)),
             backend="local",
+            delay_seconds=delay,
         )
 
     def _evict(self, now: float) -> None:

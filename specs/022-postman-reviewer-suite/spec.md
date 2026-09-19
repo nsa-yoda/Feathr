@@ -23,7 +23,7 @@ A reviewer can run negative requests and observe problem responses, validation f
 **Acceptance Scenarios**
 
 1. Invalid event and query requests assert a 4xx status and problem fields including `status`, `detail`, `error_code`, and `request_id`.
-2. The rate-limit request asserts either successful service behavior or `429` with a positive `Retry-After` header, and the collection includes a repeatable burst path for environments configured with a small limit.
+2. The rate-limit request asserts successful queued service behavior or full-backlog `429` with a positive `Retry-After` header, and the collection includes a repeatable overflow path for environments configured with a small admission backlog.
 3. Search dependency-visible behavior accepts a healthy `200` result or a safe `503` problem response without treating either as an unbounded hang.
 
 ### User Story 3 - Run the end-to-end demo (Priority: P2)

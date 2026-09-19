@@ -105,7 +105,7 @@ The following are fixed unless superseded by an explicit ADR:
 - Search projection uses the event's immutable `event_id` as the Elasticsearch document `_id`, making replays idempotent.
 - Flexible metadata must not cause Elasticsearch mapping explosion. Store the JSON in a `flattened` field and separately derive a `metadata_text` full-text field.
 - Redis realtime statistics use cache-aside semantics. Cache failures never lose events.
-- **Rate limiting is mandatory.** Use a Redis-backed atomic token bucket for distributed enforcement and a conservative process-local token bucket fallback when Redis is unavailable. Degraded limiting must be observable.
+- **Rate limiting is mandatory.** Use a Redis-backed atomic leaky bucket that reserves bounded release slots and asynchronously queues ordinary bursts. Use a conservative process-local leaky-bucket fallback when Redis is unavailable. Return `429` only when the bounded admission backlog is full; degraded limiting and queued/overflow decisions must be observable.
 - Do not trust `X-Forwarded-For` unless trusted proxy configuration explicitly enables it.
 - Mongo event queries use cursor/keyset pagination, not unbounded offset pagination.
 - API errors use a consistent RFC 9457-style `application/problem+json` shape.

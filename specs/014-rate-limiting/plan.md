@@ -4,7 +4,7 @@
 
 ## Summary
 
-Add a typed rate-limit domain with route policies, atomic Redis Lua token bucket, conservative bounded local fallback, safe peer/proxy identity extraction, and HTTP middleware/problem/header integration. Keep Redis optional and close its client in application lifespan.
+Add a typed rate-limit domain with route policies, atomic Redis Lua leaky-bucket reservations, conservative bounded local fallback, safe peer/proxy identity extraction, and HTTP middleware/problem/header integration. Requests within backlog capacity wait asynchronously for release; keep Redis optional and close its client in application lifespan.
 
 ## Technical Context
 

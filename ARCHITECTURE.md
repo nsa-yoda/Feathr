@@ -287,14 +287,14 @@ At much higher write/read volume, evolve toward incremental counters or material
 
 ## 13. Mandatory rate limiting
 
-Externally exposed application routes are rate limited. The primary limiter is a Redis-backed atomic token bucket (Lua script or equivalent atomic operation). Keying is by normalized client identity (IP for this unauthenticated assessment) plus route class.
+Externally exposed application routes use bounded admission control. The primary limiter is a Redis-backed atomic leaky bucket (Lua script or equivalent atomic operation). Keying is by normalized client identity (IP for this unauthenticated assessment) plus route class. Accepted requests reserve a release slot and wait asynchronously, smoothing bursts without dropping them.
 
-Redis failure does not disable protection. The application switches to a conservative process-local token bucket and emits degraded health/log/metric state.
+Redis failure does not disable protection. The application switches to a conservative process-local leaky bucket and emits degraded health/log/metric state.
 
-Return `429 Too Many Requests` with `Retry-After` and useful rate-limit headers. Health probes are exempt or separately protected to avoid defeating orchestration.
+Return `429 Too Many Requests` with `Retry-After` and useful rate-limit headers only when the bounded reservation backlog is full. Health probes are exempt or separately protected to avoid defeating orchestration.
 
 The implementation lives in `src/event_platform/rate_limit/` with atomic Redis
-Lua token buckets, bounded monotonic local fallback, direct-peer identity by
+Lua leaky-bucket reservations, bounded monotonic local fallback, direct-peer identity by
 default, and route-class middleware at
 `src/event_platform/api/middleware/rate_limit.py`. Redis failures emit a
 structured degraded event and continue with the conservative local policy.
@@ -363,7 +363,7 @@ Likely pressure points, in order:
 4. **Analytics scans.** Add pre-aggregated time-bucket collections or stream-materialized rollups.
 5. **Elasticsearch shards/index lifecycle.** Size shards from measured document volume, use rollover/data streams only if the access/retention model benefits.
 6. **Realtime cache stampedes/hot keys.** Use incremental counters, request coalescing, or partitioned aggregates.
-7. **Rate limiting.** Redis-backed token bucket already supports multiple API instances; consider API-key/tenant identity rather than IP once authentication exists.
+7. **Rate limiting.** Redis-backed leaky-bucket reservations already coordinate multiple API instances; consider API-key/tenant identity rather than IP once authentication exists.
 
 ## 16. Production SQS drop-in
 

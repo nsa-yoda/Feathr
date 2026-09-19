@@ -1,4 +1,4 @@
-"""Typed rate-limit policies and deterministic token-bucket math."""
+"""Typed rate-limit policies and deterministic leaky-bucket scheduling math."""
 
 from __future__ import annotations
 
@@ -53,6 +53,7 @@ class RateDecision:
     retry_after: int
     reset_at: int
     backend: Literal["redis", "local"]
+    delay_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if (
@@ -65,23 +66,26 @@ class RateDecision:
             or self.retry_after < 0
             or self.reset_at < 0
             or self.backend not in {"redis", "local"}
+            or not math.isfinite(self.delay_seconds)
+            or self.delay_seconds < 0
         ):
             raise ValueError("rate-limit decision values are invalid")
 
 
-def consume_tokens(
+def schedule_request(
     *,
-    tokens: float,
-    last_refill: float,
+    next_slot: float,
     now: float,
     policy: RoutePolicy,
-) -> tuple[float, float, bool, int, int]:
-    """Refill and consume one bucket, returning state and retry metadata."""
+) -> tuple[float, bool, int, float, int]:
+    """Reserve one leak slot or reject only when the bounded backlog is full."""
 
-    elapsed = max(0.0, now - last_refill)
-    available = min(policy.capacity, tokens + elapsed * policy.refill_per_second)
-    if available >= policy.cost:
-        remaining = available - policy.cost
-        return remaining, now, True, 0, int(math.ceil(now + 1))
-    wait = (policy.cost - available) / policy.refill_per_second
-    return available, now, False, max(1, int(math.ceil(wait))), int(math.ceil(now + wait))
+    interval = policy.cost / policy.refill_per_second
+    scheduled = max(now, next_slot)
+    delay = max(0.0, scheduled - now)
+    queued_ahead = max(0, int(math.ceil((delay / interval) - 1e-9)))
+    if queued_ahead >= policy.capacity:
+        retry = max(interval, delay - ((policy.capacity - 1) * interval))
+        return next_slot, False, 0, 0.0, max(1, int(math.ceil(retry)))
+    queue_depth = queued_ahead + 1
+    return scheduled + interval, True, policy.capacity - queue_depth, delay, 0

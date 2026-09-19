@@ -10,14 +10,14 @@ from types import MappingProxyType
 
 from event_platform.observability.metrics import MetricsRegistry
 from event_platform.rate_limit.identity import normalize_client_identity
-from event_platform.rate_limit.local_bucket import LocalTokenBucket
+from event_platform.rate_limit.local_bucket import LocalLeakyBucket
 from event_platform.rate_limit.models import (
     MIN_REFILL_PER_SECOND,
     RateDecision,
     RouteClass,
     RoutePolicy,
 )
-from event_platform.rate_limit.redis_bucket import RateLimitUnavailable, RedisTokenBucket
+from event_platform.rate_limit.redis_bucket import RateLimitUnavailable, RedisLeakyBucket
 
 logger = logging.getLogger("event_platform.rate_limit")
 
@@ -27,8 +27,8 @@ class RateLimiter:
         self,
         *,
         policies: Mapping[RouteClass, RoutePolicy],
-        local_bucket: LocalTokenBucket,
-        redis_bucket: RedisTokenBucket | None = None,
+        local_bucket: LocalLeakyBucket,
+        redis_bucket: RedisLeakyBucket | None = None,
         trusted_proxy_hops: int = 0,
         metrics: MetricsRegistry | None = None,
     ) -> None:
@@ -106,21 +106,23 @@ class RateLimiter:
     def _emit_decision(
         self, route_class: RouteClass, decision: RateDecision, request_id: str | None
     ) -> None:
+        outcome = "deny" if not decision.allowed else "queue" if decision.delay_seconds else "allow"
         logger.info(
             "rate limiter decision",
             extra={
-                "event": f"rate_limit.{'allow' if decision.allowed else 'deny'}",
+                "event": f"rate_limit.{outcome}",
                 "route_class": route_class.value,
                 "backend": decision.backend,
                 "request_id": request_id,
             },
         )
         if self.metrics is not None:
+            metric_outcome = {"allow": "allowed", "queue": "queued", "deny": "denied"}[outcome]
             self.metrics.inc(
                 "event_platform_rate_limit_decisions_total",
                 {
                     "backend": decision.backend,
-                    "outcome": "allowed" if decision.allowed else "denied",
+                    "outcome": metric_outcome,
                 },
             )
 

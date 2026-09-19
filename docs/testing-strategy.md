@@ -40,7 +40,7 @@ At minimum demonstrate:
 - ES unavailable -> ingestion/Mongo reads continue, search degrades, checkpoint does not skip;
 - Redis unavailable -> cache bypass + local rate limiter fallback;
 - queue full -> POST returns 503;
-- rate limit exceeded -> 429 and retry headers;
+- leaky-bucket queued release -> success, while full admission backlog -> 429 and retry headers;
 - invalid cursor/query/input -> stable 4xx problem documents.
 
 Feature 020 adds deterministic failure-injection coverage for the complete

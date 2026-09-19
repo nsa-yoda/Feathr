@@ -8,9 +8,9 @@ from fastapi.testclient import TestClient
 from event_platform.core.settings import ServiceSettings
 from event_platform.main import create_app
 from event_platform.rate_limit.identity import normalize_client_identity
-from event_platform.rate_limit.local_bucket import LocalTokenBucket
-from event_platform.rate_limit.models import RouteClass, RoutePolicy, consume_tokens
-from event_platform.rate_limit.redis_bucket import RateLimitUnavailable, RedisTokenBucket
+from event_platform.rate_limit.local_bucket import LocalLeakyBucket
+from event_platform.rate_limit.models import RouteClass, RoutePolicy, schedule_request
+from event_platform.rate_limit.redis_bucket import RateLimitUnavailable, RedisLeakyBucket
 from event_platform.rate_limit.service import RateLimiter, classify_route
 
 pytestmark = pytest.mark.unit
@@ -32,21 +32,45 @@ def policies() -> dict[RouteClass, RoutePolicy]:
     }
 
 
-def fixed_local_bucket() -> LocalTokenBucket:
-    return LocalTokenBucket(clock=lambda: 100.0, wall_clock=lambda: 1_000.0)
+def fixed_local_bucket() -> LocalLeakyBucket:
+    return LocalLeakyBucket(clock=lambda: 100.0, wall_clock=lambda: 1_000.0)
 
 
-def test_token_math_allows_denies_and_refills_deterministically() -> None:
-    remaining, updated, allowed, retry, _ = consume_tokens(
-        tokens=2, last_refill=0, now=0, policy=policy()
+def test_leaky_bucket_math_queues_until_the_bounded_backlog_is_full() -> None:
+    next_slot, allowed, remaining, delay, retry = schedule_request(
+        next_slot=0, now=0, policy=policy()
     )
-    assert (remaining, updated, allowed, retry) == (1, 0, True, 0)
-    remaining, _, allowed, retry, _ = consume_tokens(
-        tokens=0, last_refill=0, now=0, policy=policy()
+    assert (next_slot, allowed, remaining, delay, retry) == (1, True, 1, 0, 0)
+    next_slot, allowed, remaining, delay, retry = schedule_request(
+        next_slot=next_slot, now=0, policy=policy()
     )
-    assert (remaining, allowed, retry) == (0, False, 1)
-    remaining, _, allowed, _, _ = consume_tokens(tokens=0, last_refill=0, now=2, policy=policy())
-    assert (remaining, allowed) == (1, True)
+    assert (next_slot, allowed, remaining, delay, retry) == (2, True, 0, 1, 0)
+    unchanged, allowed, remaining, delay, retry = schedule_request(
+        next_slot=next_slot, now=0, policy=policy()
+    )
+    assert (unchanged, allowed, remaining, delay, retry) == (2, False, 0, 0, 1)
+    _, allowed, _, delay, _ = schedule_request(next_slot=next_slot, now=1, policy=policy())
+    assert (allowed, delay) == (True, 1)
+
+
+@pytest.mark.parametrize(
+    ("capacity", "leak_rate", "maximum_delay"),
+    ((1_000, 100.0, 0.02), (500, 50.0, 5.1)),
+)
+def test_ingestion_policy_admits_ui_500_request_window(
+    capacity: int, leak_rate: float, maximum_delay: float
+) -> None:
+    ingestion = RoutePolicy(RouteClass.INGESTION, capacity, leak_rate)
+    next_slot = 0.0
+    delays: list[float] = []
+    for index in range(500):
+        now = index * (5.0 / 499)
+        next_slot, allowed, _, delay, _ = schedule_request(
+            next_slot=next_slot, now=now, policy=ingestion
+        )
+        assert allowed
+        delays.append(delay)
+    assert max(delays) <= maximum_delay
 
 
 def test_route_classification_uses_templates_and_exempts_health() -> None:
@@ -98,17 +122,18 @@ async def test_redis_bucket_validates_script_result_and_maps_transport_failure()
                 raise self.result
             return self.result
 
-    valid = RedisTokenBucket(EvalClient([1, 1, 0, 101]), clock=lambda: 100.0)  # type: ignore[arg-type]
+    valid = RedisLeakyBucket(EvalClient([1, 1, 250, 0, 100_250]), clock=lambda: 100.0)  # type: ignore[arg-type]
     decision = await valid.consume("key", policy())
     assert decision.allowed is True
     assert decision.remaining == 1
     assert decision.backend == "redis"
+    assert decision.delay_seconds == 0.25
 
-    malformed = RedisTokenBucket(EvalClient([1, "1", 0, 101]), clock=lambda: 100.0)  # type: ignore[arg-type]
+    malformed = RedisLeakyBucket(EvalClient([1, "1", 0, 0, 100_000]), clock=lambda: 100.0)  # type: ignore[arg-type]
     with pytest.raises(RateLimitUnavailable, match="decode"):
         await malformed.consume("key", policy())
 
-    unavailable = RedisTokenBucket(EvalClient(TimeoutError()), clock=lambda: 100.0)  # type: ignore[arg-type]
+    unavailable = RedisLeakyBucket(EvalClient(TimeoutError()), clock=lambda: 100.0)  # type: ignore[arg-type]
     with pytest.raises(RateLimitUnavailable, match="eval"):
         await unavailable.consume("key", policy())
 
@@ -134,7 +159,7 @@ def test_identity_ignores_forwarding_by_default_and_accepts_valid_trusted_chain(
 @pytest.mark.asyncio
 async def test_local_bucket_evicts_oldest_identity_at_bound() -> None:
     clock = [0.0]
-    bucket = LocalTokenBucket(max_entries=2, clock=lambda: clock[0], wall_clock=lambda: 100.0)
+    bucket = LocalLeakyBucket(max_entries=2, clock=lambda: clock[0], wall_clock=lambda: 100.0)
     await bucket.consume("one", policy())
     await bucket.consume("two", policy())
     await bucket.consume("three", policy())
@@ -144,7 +169,7 @@ async def test_local_bucket_evicts_oldest_identity_at_bound() -> None:
 @pytest.mark.asyncio
 async def test_local_bucket_removes_idle_entries() -> None:
     clock = [0.0]
-    bucket = LocalTokenBucket(
+    bucket = LocalLeakyBucket(
         max_entries=4,
         idle_ttl_seconds=5,
         clock=lambda: clock[0],
@@ -184,6 +209,33 @@ def test_rate_limit_middleware_returns_problem_and_headers(
     assert "rate_limit.allow" in events
     assert "rate_limit.deny" in events
     assert all(record.__dict__.get("request_id") for record in rate_records)
+
+
+def test_rate_limit_middleware_queues_before_rejecting_full_backlog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delays: list[float] = []
+
+    async def record_delay(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("event_platform.api.middleware.rate_limit._wait_for_slot", record_delay)
+    settings = ServiceSettings(
+        env="test",
+        rate_limit_normal_capacity=4,
+        rate_limit_normal_refill=0.1,
+    )
+    with TestClient(create_app(settings)) as client:
+        first = client.get("/openapi.json")
+        queued = client.get("/openapi.json")
+        overflow = client.get("/openapi.json")
+    assert first.status_code == 200
+    assert queued.status_code == 200
+    assert queued.headers["X-RateLimit-Queued"] == "true"
+    assert delays and delays[0] > 9
+    assert overflow.status_code == 429
+    assert overflow.json()["error_code"] == "rate_limit_exceeded"
+    assert overflow.json()["detail"] == "The bounded request admission backlog is full."
 
 
 def test_health_is_exempt_from_rate_limiting() -> None:

@@ -1,4 +1,4 @@
-"""Atomic Redis token bucket adapter."""
+"""Atomic Redis leaky-bucket reservation adapter."""
 
 from __future__ import annotations
 
@@ -17,36 +17,26 @@ class _EvalClient(Protocol):
     def eval(self, script: str, numkeys: int, *keys_and_args: str) -> Awaitable[object]: ...
 
 
-_TOKEN_BUCKET_SCRIPT = """
-local tokens_raw = redis.call('HGET', KEYS[1], 'tokens')
-local updated_raw = redis.call('HGET', KEYS[1], 'updated')
-local tokens = tonumber(tokens_raw)
-local updated = tonumber(updated_raw)
+_LEAKY_BUCKET_SCRIPT = """
+local next_raw = redis.call('GET', KEYS[1])
+local next_slot = tonumber(next_raw)
 local now = tonumber(ARGV[1])
 local capacity = tonumber(ARGV[2])
-local refill = tonumber(ARGV[3])
-local cost = tonumber(ARGV[4])
-local ttl = tonumber(ARGV[5])
-if not tokens_raw and not updated_raw then
-  tokens = capacity
-  updated = now
-elseif not tokens or not updated then
-  return {-1, 0, 0, 0}
+local interval = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+if next_raw and not next_slot then
+  return {-1, 0, 0, 0, 0}
 end
-tokens = math.min(capacity, tokens + math.max(0, now - updated) * refill)
-local allowed = 0
-local retry = 0
-local reset = now + 1
-if tokens >= cost then
-  tokens = tokens - cost
-  allowed = 1
-else
-  retry = math.max(1, math.ceil((cost - tokens) / refill))
-  reset = now + retry
+next_slot = math.max(now, next_slot or now)
+local delay = math.max(0, next_slot - now)
+local queued_ahead = math.ceil(delay / interval)
+if queued_ahead >= capacity then
+  local retry = math.max(1, next_slot - now - ((capacity - 1) * interval))
+  return {0, 0, 0, retry, next_slot}
 end
-redis.call('HSET', KEYS[1], 'tokens', tokens, 'updated', now)
-redis.call('EXPIRE', KEYS[1], ttl)
-return {allowed, math.floor(tokens), retry, math.ceil(reset)}
+local remaining = capacity - queued_ahead - 1
+redis.call('SET', KEYS[1], next_slot + interval, 'PX', ttl)
+return {1, remaining, delay, 0, next_slot}
 """
 
 
@@ -56,7 +46,7 @@ class RateLimitUnavailable(RuntimeError):
         self.operation = operation
 
 
-class RedisTokenBucket:
+class RedisLeakyBucket:
     def __init__(
         self,
         client: Redis,
@@ -70,42 +60,46 @@ class RedisTokenBucket:
 
     async def consume(self, key: str, policy: RoutePolicy) -> RateDecision:
         now = self._clock()
+        interval_ms = max(1, int(math.ceil((policy.cost / policy.refill_per_second) * 1000)))
+        now_ms = int(math.floor(now * 1000))
         try:
             result = await cast(_EvalClient, self._client).eval(
-                _TOKEN_BUCKET_SCRIPT,
+                _LEAKY_BUCKET_SCRIPT,
                 1,
                 f"{self._key_prefix}{key}",
-                str(now),
+                str(now_ms),
                 str(policy.capacity),
-                str(policy.refill_per_second),
-                str(policy.cost),
-                str(max(1, int(math.ceil(policy.capacity / policy.refill_per_second)) * 2)),
+                str(interval_ms),
+                str(max(1_000, policy.capacity * interval_ms * 2)),
             )
         except (RedisError, OSError, TimeoutError):
             raise RateLimitUnavailable("eval") from None
-        if not isinstance(result, list | tuple) or len(result) != 4:
+        if not isinstance(result, list | tuple) or len(result) != 5:
             raise RateLimitUnavailable("decode")
         if any(type(value) is not int for value in result):
             raise RateLimitUnavailable("decode")
         try:
-            allowed, remaining, retry, reset = result
+            allowed, remaining, delay_ms, retry_ms, release_ms = result
         except (OverflowError, TypeError, ValueError):
             raise RateLimitUnavailable("decode") from None
-        max_ttl = max(1, int(math.ceil(policy.capacity / policy.refill_per_second)) * 2)
+        max_delay_ms = policy.capacity * interval_ms
         if (
             allowed not in {0, 1}
             or not 0 <= remaining <= int(policy.capacity)
-            or (allowed == 1 and retry != 0)
-            or (allowed == 0 and retry < 1)
-            or reset < int(math.ceil(now))
-            or reset > int(math.ceil(now + max_ttl))
+            or delay_ms < 0
+            or delay_ms > max_delay_ms
+            or (allowed == 1 and retry_ms != 0)
+            or (allowed == 0 and retry_ms < 1)
+            or release_ms < now_ms
+            or release_ms > now_ms + max_delay_ms
         ):
             raise RateLimitUnavailable("decode")
         return RateDecision(
             allowed=bool(allowed),
             limit=int(policy.capacity),
             remaining=remaining,
-            retry_after=retry,
-            reset_at=reset,
+            retry_after=max(0, int(math.ceil(retry_ms / 1000))),
+            reset_at=int(math.ceil(release_ms / 1000)),
             backend="redis",
+            delay_seconds=delay_ms / 1000,
         )

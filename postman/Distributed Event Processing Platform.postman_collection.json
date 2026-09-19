@@ -466,7 +466,7 @@
           ]
         },
         {
-          "name": "429 burst contract",
+          "name": "Admission backlog overflow contract",
           "request": {
             "method": "GET",
             "header": [],
@@ -482,8 +482,8 @@
                   "const deadline = Date.now() + Number(pm.environment.get(\"pollDeadlineMs\") || 30000);",
                   "let count = 0; let got429 = false; let retryAfterMs = 0;",
                   "function sendNext() {",
-                  "  if (Date.now() >= deadline) { pm.test(\"rate-limit burst completes before deadline\", () => pm.expect.fail(\"429 burst deadline exceeded\")); return; }",
-                  "  if (count >= burst) { setTimeout(() => pm.test(\"rate-limit burst observes 429\", () => pm.expect(got429).to.eql(true)), retryAfterMs + 100); return; }",
+                  "  if (Date.now() >= deadline) { pm.test(\"admission backlog overflow completes before deadline\", () => pm.expect.fail(\"admission backlog overflow deadline exceeded\")); return; }",
+                  "  if (count >= burst) { setTimeout(() => pm.test(\"admission backlog overflow observes 429\", () => pm.expect(got429).to.eql(true)), retryAfterMs + 100); return; }",
                   "  pm.sendRequest({url: `${pm.environment.get(\"baseUrl\")}/events?limit=1`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000)}, (error, response) => {",
                   "    if (response.code === 429) { got429 = true; retryAfterMs = Math.max(retryAfterMs, Number(response.headers.get(\"Retry-After\")) * 1000); pm.expect(Number(response.headers.get(\"Retry-After\"))).to.be.greaterThan(0); }",
                   "    count += 1; sendNext();",

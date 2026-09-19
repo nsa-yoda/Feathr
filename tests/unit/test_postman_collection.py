@@ -93,7 +93,9 @@ def test_collection_covers_required_statuses_and_safe_problem_contract() -> None
         assert field in text
     assert "rateLimitBurst" in text
     assert "got429" in text
-    burst = next(request for request in requests if request["name"] == "429 burst contract")
+    burst = next(
+        request for request in requests if request["name"] == "Admission backlog overflow contract"
+    )
     assert 'response.headers.get("Retry-After")' in _script_text(burst)
     readiness = next(request for request in requests if request["name"] == "Readiness contract")
     assert "persistence_worker" in _script_text(readiness)

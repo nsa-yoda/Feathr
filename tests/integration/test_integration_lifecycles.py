@@ -24,7 +24,7 @@ from event_platform.cache.realtime import (
 from event_platform.core.settings import ServiceSettings
 from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.main import create_app
-from event_platform.rate_limit.redis_bucket import RedisTokenBucket
+from event_platform.rate_limit.redis_bucket import RedisLeakyBucket
 from event_platform.search.mapping import INDEX_MAPPING, index_name
 from event_platform.storage.mongo import MongoEventStore, event_to_document
 from tests.integration.support import (
@@ -275,7 +275,7 @@ async def test_http_analytics_and_realtime_cache_use_real_services() -> None:
             )
         )
         async with app.router.lifespan_context(app):
-            app.state.rate_limiter.redis_bucket = RedisTokenBucket(
+            app.state.rate_limiter.redis_bucket = RedisLeakyBucket(
                 redis, key_prefix=f"{cache_prefix}:"
             )
             app.state.realtime_stats_service = RealtimeStatsService(

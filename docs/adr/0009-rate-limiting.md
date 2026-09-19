@@ -1,6 +1,6 @@
 # ADR 0009: Use Redis token bucket with local degraded fallback
 
-**Status:** Accepted  
+**Status:** Superseded by ADR 0010
 **Date:** 2026-09-18
 
 

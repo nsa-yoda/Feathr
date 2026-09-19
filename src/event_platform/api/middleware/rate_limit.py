@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from uuid import UUID, uuid4
 
 from starlette.datastructures import MutableHeaders
@@ -12,6 +13,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from event_platform.api.problems import ProblemResponse, _safe_instance
 from event_platform.rate_limit.models import RateDecision
 from event_platform.rate_limit.service import RateLimiter, classify_route
+
+_wait_for_slot = asyncio.sleep
 
 
 class RateLimitMiddleware:
@@ -56,7 +59,7 @@ class RateLimitMiddleware:
             body = ProblemResponse(
                 title="Too Many Requests",
                 status=429,
-                detail="The request rate limit was exceeded.",
+                detail="The bounded request admission backlog is full.",
                 instance=_safe_instance(request.url.path),
                 error_code="rate_limit_exceeded",
                 request_id=UUID(request_id),
@@ -70,6 +73,8 @@ class RateLimitMiddleware:
                 headers=headers,
             )(scope, receive, send)
             return
+        if decision is not None and decision.delay_seconds > 0:
+            await _wait_for_slot(decision.delay_seconds)
 
         async def send_with_rate_headers(message: Message) -> None:
             if message["type"] == "http.response.start" and decision is not None:
@@ -90,6 +95,8 @@ def _rate_headers(decision: RateDecision, denied: bool) -> dict[str, str]:
     }
     if denied:
         headers["Retry-After"] = str(max(1, decision.retry_after))
+    elif decision.delay_seconds > 0:
+        headers["X-RateLimit-Queued"] = "true"
     return headers
 
 

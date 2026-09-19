@@ -56,7 +56,7 @@ features:
   - id: 014
     slug: rate-limiting
     depends_on: [001]
-    summary: "Implement mandatory Redis atomic token bucket, route classes, client identity rules, 429 headers, and conservative local fallback."
+    summary: "Implement mandatory Redis atomic leaky-bucket admission, route classes, client identity rules, bounded overflow 429 headers, and conservative local fallback."
   - id: 015
     slug: observability-health
     depends_on: [001, 003, 004, 010, 013, 014]

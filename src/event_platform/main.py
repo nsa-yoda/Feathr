@@ -33,7 +33,7 @@ from event_platform.core.settings import ServiceSettings, SettingsStartupError, 
 from event_platform.observability.health import HealthRegistry
 from event_platform.observability.metrics import MetricsRegistry
 from event_platform.queue import InProcessQueue
-from event_platform.rate_limit import LocalTokenBucket, RedisTokenBucket, RouteClass, RoutePolicy
+from event_platform.rate_limit import LocalLeakyBucket, RedisLeakyBucket, RouteClass, RoutePolicy
 from event_platform.rate_limit.service import RateLimiter
 from event_platform.search.bootstrap import ensure_search_alias
 from event_platform.search.elasticsearch import ElasticsearchProjectionWriter
@@ -259,10 +259,10 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             }
             app.state.rate_limiter = RateLimiter(
                 policies=policies,
-                local_bucket=LocalTokenBucket(
+                local_bucket=LocalLeakyBucket(
                     max_entries=settings_value.rate_limit_local_max_entries
                 ),
-                redis_bucket=RedisTokenBucket(redis_client) if redis_client is not None else None,
+                redis_bucket=RedisLeakyBucket(redis_client) if redis_client is not None else None,
                 trusted_proxy_hops=settings_value.rate_limit_trusted_proxy_hops,
                 metrics=app.state.metrics,
             )

@@ -57,6 +57,7 @@ _ALLOWED_VALUES = {
             "shutdown",
             "accepted",
             "allowed",
+            "queued",
             "denied",
             "degraded",
             "hit",

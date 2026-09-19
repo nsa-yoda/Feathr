@@ -36,6 +36,7 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **AI proposal/contribution:** initially described rate limiting conditionally.
 - **Pushback/correction:** human explicitly rejected treating rate limiting as optional.
 - **Human decision and rationale:** rate limiting is mandatory and implemented with Redis token bucket plus local fallback.
+- **2026-09-19 human amendment:** replace ordinary token-bucket rejection with bounded Redis/local leaky-bucket release reservations so bursts queue and continue; retain 429 only for a completely full admission backlog.
 - **Artifacts/code affected:** constitution, ADR-0009, Feature 015.
 
 ### 2026-09-18 — Reviewer experience

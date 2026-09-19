@@ -1,14 +1,14 @@
 """Rate-limit domain and backend adapters."""
 
-from event_platform.rate_limit.local_bucket import LocalTokenBucket
+from event_platform.rate_limit.local_bucket import LocalLeakyBucket
 from event_platform.rate_limit.models import RateDecision, RouteClass, RoutePolicy
-from event_platform.rate_limit.redis_bucket import RateLimitUnavailable, RedisTokenBucket
+from event_platform.rate_limit.redis_bucket import RateLimitUnavailable, RedisLeakyBucket
 
 __all__ = [
-    "LocalTokenBucket",
+    "LocalLeakyBucket",
     "RateDecision",
     "RateLimitUnavailable",
-    "RedisTokenBucket",
+    "RedisLeakyBucket",
     "RouteClass",
     "RoutePolicy",
 ]

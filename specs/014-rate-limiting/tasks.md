@@ -9,11 +9,11 @@
 
 ## Phase 2: Foundational
 
-- [X] T003 [P] Define route policy, decision, and injectable token math models in `src/event_platform/rate_limit/models.py`.
+- [X] T003 [P] Define route policy, decision, and injectable scheduling math models in `src/event_platform/rate_limit/models.py`.
 - [X] T004 [P] Implement direct-peer and trusted-proxy identity normalization in `src/event_platform/rate_limit/identity.py`.
-- [X] T005 [P] Implement bounded monotonic local token bucket with idle/LRU eviction in `src/event_platform/rate_limit/local_bucket.py`.
-- [X] T006 Implement Redis Lua token bucket adapter and classified failure boundary in `src/event_platform/rate_limit/redis_bucket.py`.
-- [X] T007 Add unit tests for token math, identity normalization, route isolation, and local eviction in `tests/unit/test_rate_limit.py`.
+- [X] T005 [P] Implement bounded monotonic local leaky-bucket scheduling with idle/LRU eviction in `src/event_platform/rate_limit/local_bucket.py`.
+- [X] T006 Implement Redis Lua leaky-bucket reservation adapter and classified failure boundary in `src/event_platform/rate_limit/redis_bucket.py`.
+- [X] T007 Add unit tests for scheduling math, identity normalization, route isolation, and local eviction in `tests/unit/test_rate_limit.py`.
 
 ## Phase 3: User Story 1 - Distributed route protection (P1)
 
@@ -35,3 +35,4 @@
 ## Phase 6: Gates
 
 - [X] T016 Run analyze, converge, staff review, comprehensive review, remediate findings, rerun repository gates, and record the final report.
+- [X] T017 Replace immediate token rejection with bounded asynchronous leaky-bucket release reservations; align ingestion defaults with the 500-request reviewer burst.

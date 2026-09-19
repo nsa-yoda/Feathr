@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 from event_platform.core.settings import ServiceSettings
 from event_platform.main import create_app
 from event_platform.rate_limit import RateLimitUnavailable, RouteClass, RoutePolicy
-from event_platform.rate_limit.local_bucket import LocalTokenBucket
-from event_platform.rate_limit.redis_bucket import RedisTokenBucket
+from event_platform.rate_limit.local_bucket import LocalLeakyBucket
+from event_platform.rate_limit.redis_bucket import RedisLeakyBucket
 from event_platform.rate_limit.service import RateLimiter
 
 pytestmark = pytest.mark.failure
@@ -28,8 +28,8 @@ async def test_redis_failure_uses_local_fallback_without_raw_error() -> None:
     }
     limiter = RateLimiter(
         policies=policies,
-        local_bucket=LocalTokenBucket(max_entries=4),
-        redis_bucket=RedisTokenBucket(BrokenRedis()),  # type: ignore[arg-type]
+        local_bucket=LocalLeakyBucket(max_entries=4),
+        redis_bucket=RedisLeakyBucket(BrokenRedis()),  # type: ignore[arg-type]
     )
     scope = {"client": ("127.0.0.1", 1), "headers": []}
     decision = await limiter.check(scope, method="GET", path="/query")
@@ -54,7 +54,7 @@ def test_http_fallback_uses_broken_redis_adapter() -> None:
     )
     app = create_app(settings)
     with TestClient(app) as client:
-        app.state.rate_limiter.redis_bucket = RedisTokenBucket(BrokenRedis())  # type: ignore[arg-type]
+        app.state.rate_limiter.redis_bucket = RedisLeakyBucket(BrokenRedis())  # type: ignore[arg-type]
         first = client.get("/openapi.json")
         second = client.get("/openapi.json")
     assert first.status_code == 200
@@ -63,7 +63,7 @@ def test_http_fallback_uses_broken_redis_adapter() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("result", ([1, 2], [0, 0, 0, 0], [1, 999, 0, 999]))
+@pytest.mark.parametrize("result", ([1, 2], [0, 0, 0, 0, 0], [1, 999, 0, 0, 999_999_999]))
 @pytest.mark.asyncio
 async def test_malformed_redis_result_is_classified(result: object) -> None:
     class BadResult:
@@ -71,7 +71,7 @@ async def test_malformed_redis_result_is_classified(result: object) -> None:
             del args
             return result
 
-    bucket = RedisTokenBucket(BadResult())  # type: ignore[arg-type]
+    bucket = RedisLeakyBucket(BadResult())  # type: ignore[arg-type]
     with pytest.raises(RateLimitUnavailable) as error:
         await bucket.consume("hashed", RoutePolicy(RouteClass.NORMAL_READ, 1, 1))
     assert error.value.operation == "decode"

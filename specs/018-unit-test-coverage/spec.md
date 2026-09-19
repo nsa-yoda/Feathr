@@ -69,7 +69,7 @@ As a reviewer, I need a reproducible coverage command and a short explanation of
 - **FR-003**: The unit suite MUST cover canonical query cursors, search cursors, analytics ranges/pipelines, malformed and tampered inputs, and zero downstream calls for invalid inputs.
 - **FR-004**: The unit suite MUST cover search mapping and fixed query construction, including metadata flattening, deterministic text, unsafe response shapes, and dependency failure translation.
 - **FR-005**: The unit suite MUST cover realtime cache keys, schema/temporal/cardinality validation, hit/miss/bypass behavior, Redis failure, TTL propagation, and single-flight coalescing.
-- **FR-006**: The unit suite MUST cover token-bucket math, route isolation, direct-peer and trusted-proxy identity, malformed forwarding headers, retry metadata, and local eviction.
+- **FR-006**: The unit suite MUST cover leaky-bucket scheduling math, queued release, bounded overflow, route isolation, direct-peer and trusted-proxy identity, malformed forwarding headers, retry metadata, and local eviction.
 - **FR-007**: The unit suite MUST cover settings and problem mapping boundaries, including startup-safe validation, response headers, and redaction behavior.
 - **FR-008**: Tests MUST assert observable behavior and state transitions rather than only mock invocation counts; clocks, jitter, and dependency ports MUST remain deterministic.
 - **FR-009**: The repository MUST provide a locked-dependency coverage report command that measures the unit suite and documents its evidence limits.
