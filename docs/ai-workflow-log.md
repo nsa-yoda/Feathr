@@ -357,3 +357,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 ### 2026-09-19 — Feature 023 review correction
 
 - **Correction:** review remediation added events user/event-type filters and next-cursor navigation, search user filtering, dashboard last-success retention plus realtime/cache cards, and safe operational metric summaries. The earlier intentional-scope note is superseded by these implemented summaries; raw DLQ payloads remain excluded.
+
+### 2026-09-19 — Feature 024 developer experience and CI
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify and implement reproducible local commands and a focused locked CI workflow.
+- **AI proposal/contribution:** mapped existing Make, uv.lock, Compose, coverage, Postman, smoke, and rebuild CLI surfaces into aggregate quality/lifecycle targets and independent GitHub Actions static/test jobs with uv cache and coverage artifact upload.
+- **What was useful:** Docker-free target/CI contract tests make the workflow reviewable without a live daemon; `uv run --locked` keeps local and CI dependency resolution aligned.
+- **Pushback/correction:** live Compose, Postman, browser, and service-backed integration remain explicit runtime gates; the CI workflow does not silently claim those checks on a host without dependencies.
+- **Human decision and rationale:** keep the pipeline focused on the assessment's required quality gates rather than introducing unrelated release automation.
+- **Artifacts/code affected:** Makefile, `.github/workflows/ci.yml`, README, Feature 024 artifacts, traceability, developer-experience contract tests, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** Docker-free target/CI tests and static gates pass; live CI execution remains the hosted-runner evidence source.

@@ -18,7 +18,7 @@ if ! command -v docker >/dev/null || ! command -v curl >/dev/null || ! command -
 fi
 
 deadline=$((SECONDS + deadline_seconds))
-docker compose --project-name "$project" up --build -d --remove-orphans >"$tmp_dir/compose.log" 2>&1 &
+docker compose --env-file .env.example --project-name "$project" up --build -d --remove-orphans >"$tmp_dir/compose.log" 2>&1 &
 compose_pid=$!
 while kill -0 "$compose_pid" 2>/dev/null; do
   if (( SECONDS >= deadline )); then

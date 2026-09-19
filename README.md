@@ -1,6 +1,6 @@
 # Distributed Event Processing Platform
 
-> **Current state:** Features 001-023 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, and executable Postman reviewer suite plus the reviewer operations UI. Static Compose/Postman/UI validation is complete; live startup, smoke, and Newman/browser execution require their runtime tools; see `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
+> **Current state:** Features 001-024 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, and executable Postman reviewer suite plus the reviewer operations UI. Static Compose/Postman/UI validation is complete; live startup, smoke, and Newman/browser execution require their runtime tools; see `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
 
 A production-oriented event ingestion, processing, search, analytics, caching, and reviewer-demo platform built with FastAPI, MongoDB, Elasticsearch, Redis, and an assessment-mandated in-process SQS-style queue.
 
@@ -34,6 +34,29 @@ make test-integration
 make test-failure
 make coverage
 ```
+
+Developer workflow targets:
+
+```bash
+make all
+make compose-config
+make compose-up
+make smoke
+make postman
+make compose-down
+# destructive local reset, when intended:
+make compose-reset
+make rebuild-status
+make rebuild-demo
+```
+
+`make rebuild-demo` prints the guarded rebuild command and its dependency-harness
+requirement; use `make rebuild-status` for a read-only check. The direct CLI
+forms are `uv run --locked python -m event_platform.cli search rebuild-status`
+and `uv run --locked python -m event_platform.cli search rebuild --confirm`.
+
+CI uses Python 3.12, a pinned uv release, and `uv.lock` with `--locked`
+resolution.
 
 The unit suite is the isolated semantic suite for settings, lifecycle, queue/worker state, query/search/analytics contracts, caching, rate limiting, request IDs, and problem responses. `make coverage` measures executed source lines and branches and writes `coverage/coverage.xml`; it is a signal, not proof of semantic completeness. Coverage does not replace integration tests against MongoDB, Elasticsearch, or Redis, failure-injection tests, browser checks, Compose smoke, or Postman review flows. The current HTTP contract is in [the foundation contract](specs/001-platform-foundation/contracts/http-foundation.md), and its manual check is in [the quickstart validation](specs/001-platform-foundation/quickstart.md).
 
@@ -74,8 +97,8 @@ numbered folders in order. The collection captures an event ID and uses bounded
 polling for canonical query and Elasticsearch search. Newman users can run
 `make postman`; the wrapper exits clearly when Newman or the API is unavailable.
 
-The remaining feature work will add CI automation and final
-submission reconciliation. The current reviewer URLs are:
+Feature 024 adds the reproducible CI and developer command surface; final
+submission reconciliation remains the last feature. The current reviewer URLs are:
 
 - API docs: `http://localhost:8000/docs`
 - Liveness: `http://localhost:8000/health/live`

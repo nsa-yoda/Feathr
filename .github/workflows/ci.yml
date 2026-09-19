@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: make format-check
+      - run: make lint
+      - run: make typecheck
+      - run: make compose-config
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.8.17"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: make test-unit
+      - run: make test-failure
+      - run: make test-integration
+      - run: uv run --locked coverage run --branch --source=src/event_platform -m pytest -q tests/unit
+        continue-on-error: true
+      - run: uv run --locked coverage xml -o coverage/coverage.xml
+        if: always()
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/coverage.xml
+          if-no-files-found: ignore
+
+  runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make compose-up
+      - run: make smoke
+      - if: always()
+        run: make compose-down
