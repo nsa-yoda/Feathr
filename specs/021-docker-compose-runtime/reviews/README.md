@@ -1,3 +1,6 @@
-# Reviews — 021 docker-compose-runtime
+# Feature 021 Reviews
 
-Spec Kit staff-review and review-extension outputs for this feature belong here when their tooling supports feature-local output. Blocker/Critical issues must be remediated before acceptance. Record any intentionally accepted Warning/Important issue with rationale.
+- [Approved staff review report](review-20260919-023000.md)
+
+The report records the specialized review remediation, static repository gates,
+and the unavailable local Docker daemon as an explicit live-gate condition.

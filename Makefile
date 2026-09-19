@@ -1,4 +1,4 @@
-.PHONY: format-check lint typecheck test-unit test-integration test-failure coverage
+.PHONY: format-check lint typecheck test-unit test-integration test-failure coverage smoke postman
 
 format-check:
 	uv run --locked ruff format --check src tests
@@ -23,3 +23,9 @@ coverage:
 	uv run --locked coverage report --show-missing
 	mkdir -p coverage
 	uv run --locked coverage xml -o coverage/coverage.xml
+
+smoke:
+	./scripts/smoke
+
+postman:
+	@echo "Postman reviewer suite is provided by Feature 022; run its documented collection when available."

@@ -1,6 +1,6 @@
 # Distributed Event Processing Platform
 
-> **Current state:** Feature 001 provides the runnable platform foundation. Event ingestion, data services, reviewer UI, and Compose are planned in later features; see `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
+> **Current state:** Features 001-021 provide the API, data services, lifecycle controls, failure coverage, and reviewer Docker Compose configuration. Static Compose validation is complete; live startup and smoke require a running Docker daemon. The full reviewer UI and Postman workflow are delivered by later features; see `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
 
 A production-oriented event ingestion, processing, search, analytics, caching, and reviewer-demo platform built with FastAPI, MongoDB, Elasticsearch, Redis, and an assessment-mandated in-process SQS-style queue.
 
@@ -37,16 +37,37 @@ make coverage
 
 The unit suite is the isolated semantic suite for settings, lifecycle, queue/worker state, query/search/analytics contracts, caching, rate limiting, request IDs, and problem responses. `make coverage` measures executed source lines and branches and writes `coverage/coverage.xml`; it is a signal, not proof of semantic completeness. Coverage does not replace integration tests against MongoDB, Elasticsearch, or Redis, failure-injection tests, browser checks, Compose smoke, or Postman review flows. The current HTTP contract is in [the foundation contract](specs/001-platform-foundation/contracts/http-foundation.md), and its manual check is in [the quickstart validation](specs/001-platform-foundation/quickstart.md).
 
-## Target reviewer quick start after later features
+## Reviewer quick start
 
 The finished repository must support a workflow no more complicated than:
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build -d
+make smoke
 ```
 
-The completed submission README must then list:
+The API is available at `http://localhost:8000`, OpenAPI at `/docs`, readiness at
+`/health/ready`, metrics at `/metrics`, and the static UI shell at
+`http://localhost:3000`. Compose waits for Mongo replica-set initialization and
+healthy Elasticsearch and Redis services before starting the API. `make smoke`
+uses a bounded deadline to post an event and verify canonical query, search, and
+realtime statistics.
+
+If smoke fails, the stack remains available for inspection with `docker compose
+ps`; reset it with `docker compose down -v`.
+
+Reset all local data with:
+
+```bash
+docker compose down -v
+```
+
+The API and UI containers run as non-root users. Redis is unauthenticated in the
+local defaults; set `REDIS_PASSWORD` and update `EVENT_PLATFORM_REDIS_URL` in
+`.env` together when a password is required.
+
+Later reviewer features will extend this quick start with:
 
 - Demo UI URL
 - FastAPI/OpenAPI URL
@@ -55,9 +76,7 @@ The completed submission README must then list:
 - Postman import/run instructions
 - unit/integration/failure test commands
 
-## Required final sections
-
-Codex must replace this planning README with a complete submission README containing:
+The final submission documentation will also include:
 
 1. Project overview and key guarantees
 2. Architecture summary and link to `ARCHITECTURE.md`

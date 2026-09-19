@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+base_url=${SMOKE_BASE_URL:-http://localhost:${APP_PORT:-8000}}
+deadline_seconds=${SMOKE_DEADLINE_SECONDS:-90}
+project=${COMPOSE_PROJECT_NAME:-feathr}
+tmp_dir=$(mktemp -d)
+trap 'rm -rf "$tmp_dir"' EXIT
+
+[[ "$deadline_seconds" =~ ^[1-9][0-9]*$ ]] || {
+  echo 'SMOKE_DEADLINE_SECONDS must be a positive integer' >&2
+  exit 2
+}
+
+if ! command -v docker >/dev/null || ! command -v curl >/dev/null || ! command -v jq >/dev/null; then
+  echo 'smoke requires docker, curl, and jq' >&2
+  exit 2
+fi
+
+deadline=$((SECONDS + deadline_seconds))
+docker compose --project-name "$project" up --build -d --remove-orphans >"$tmp_dir/compose.log" 2>&1 &
+compose_pid=$!
+while kill -0 "$compose_pid" 2>/dev/null; do
+  if (( SECONDS >= deadline )); then
+    kill "$compose_pid" 2>/dev/null || true
+    wait "$compose_pid" 2>/dev/null || true
+    echo 'smoke deadline exceeded while starting Compose' >&2
+    exit 1
+  fi
+  sleep 1
+done
+if ! wait "$compose_pid"; then
+  if grep -qi 'cannot connect.*docker daemon' "$tmp_dir/compose.log"; then
+    echo 'Compose failed: Docker daemon is unavailable' >&2
+  else
+    echo 'Compose failed to start the reviewer stack' >&2
+  fi
+  exit 1
+fi
+
+poll() {
+  local url=$1 expected=$2 body=$tmp_dir/response code=''
+  while (( SECONDS < deadline )); do
+    code=$(curl_with_deadline -sS -o "$body" -w '%{http_code}' "$url" || true)
+    if [[ "$code" == "$expected" ]]; then
+      cat "$body"
+      return 0
+    fi
+    sleep 1
+  done
+  if [[ "${code:-}" == 000 ]]; then
+    echo "smoke deadline exceeded for ${url##*/} (transport unavailable)" >&2
+  else
+    echo "smoke deadline exceeded for ${url##*/} (last status ${code:-unavailable})" >&2
+  fi
+  return 1
+}
+
+curl_with_deadline() {
+  local remaining=$((deadline - SECONDS))
+  (( remaining > 0 )) || return 28
+  local request_timeout=$((remaining < 5 ? remaining : 5))
+  curl --connect-timeout "$request_timeout" --max-time "$request_timeout" "$@"
+}
+
+poll "$base_url/health/live" 200 >/dev/null
+poll "$base_url/health/ready" 200 >/dev/null
+
+suffix=$(date -u +%s)-$$
+idempotency="smoke-${suffix}"
+payload=$(jq -cn --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg user "smoke-${suffix}" \
+  '{event_type:"smoke.event",timestamp:$timestamp,user_id:$user,source_url:"https://example.invalid/smoke",metadata:{source:"compose-smoke"}}')
+ingest_body=$tmp_dir/ingest
+ingest_code=$(curl_with_deadline -sS -o "$ingest_body" -w '%{http_code}' -X POST "$base_url/events" \
+  -H 'content-type: application/json' -H "Idempotency-Key: ${idempotency}" -d "$payload" || true)
+if [[ "$ingest_code" != 202 ]]; then
+  if [[ "$ingest_code" == 000 ]]; then
+    echo 'smoke ingest failed: transport unavailable' >&2
+  else
+    echo "smoke ingest failed with status ${ingest_code}" >&2
+  fi
+  exit 1
+fi
+event_id=$(jq -er '.event_id' "$ingest_body")
+
+query_url="$base_url/events?user_id=smoke-${suffix}&limit=50"
+poll_json() {
+  local url=$1 body_name=$2 failure_message=$3 last_code=''
+  shift 3
+  local body=$tmp_dir/$body_name
+  while (( SECONDS < deadline )); do
+    last_code=$(curl_with_deadline -sS -o "$body" -w '%{http_code}' "$url" || true)
+    if printf '%s\n' "$last_code" | grep -qx 200 \
+      && jq -e "$@" "$body" >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  if [[ "$last_code" == 000 ]]; then
+    echo "$failure_message (transport unavailable)" >&2
+  else
+    echo "$failure_message (last status ${last_code:-unavailable})" >&2
+  fi
+  return 1
+}
+
+poll_json "$query_url" query 'smoke canonical query deadline exceeded' \
+  --arg id "$event_id" '.items | any(.[]; .event_id == $id)'
+poll_json "$base_url/events/search?q=smoke.event&limit=50" search \
+  'smoke search projection deadline exceeded' --arg id "$event_id" \
+  '.items | any(.[]; .event_id == $id)'
+poll_json "$base_url/events/stats/realtime?window_minutes=5" stats \
+  'smoke realtime statistics deadline exceeded' \
+  '.points | any(.[]; .event_type == "smoke.event" and .count > 0)'
+echo "smoke passed for event ${event_id}"

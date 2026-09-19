@@ -320,3 +320,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** approve the feature after all blockers/warnings were closed, with `SearchRebuilder` now preserving the original unexpected exception while recording bounded failed state and independently attempting cleanup.
 - **Artifacts/code affected:** Feature 020 staff report, `PersistenceStore`, rebuild failure boundary/code allowlist, deterministic failure tests, and updated testing/traceability documentation.
 - **Validation/review performed:** staff checklist report `specs/020-failure-injection-tests/reviews/review-20260919-004350.md` is approved with 0 open blockers/warnings; 286 unit tests, 29 failure tests, 11 explicit integration skips, coverage 3,347 statements/87.8% line/846 branches/75.8% branch, format/lint/typecheck/coverage/diff gates all pass.
+
+### 2026-09-19 — Feature 021 Docker Compose runtime
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify, plan, implement, and review a one-command local stack for the FastAPI service, Mongo replica set, Elasticsearch, Redis, and reviewer UI shell.
+- **AI proposal/contribution:** used Serena searches to map existing settings, lifecycle health probes, Dockerfiles, integration endpoints, and event contracts; added pinned Compose services, idempotent bounded Mongo initialization, non-root nginx proxying, and a bounded smoke script.
+- **What was useful:** static contract tests and `docker compose config` made service names, health conditions, volumes, ports, and non-root runtime properties reviewable without a Docker daemon.
+- **Pushback/correction:** the first acceptance wording counted four checks even though the smoke flow covered six; the spec was corrected. Live Compose execution was not claimed because the local Docker daemon was unavailable.
+- **Human decision and rationale:** keep Mongo canonical, treat Elasticsearch as an eventually consistent projection and Redis as optional acceleration, and merge the Compose configuration with the live-gate limitation recorded for a daemon-capable environment.
+- **Artifacts/code affected:** `specs/021-docker-compose-runtime/`, `docker-compose.yml`, `docker/mongo-init.sh`, `frontend/nginx.conf`, `scripts/smoke`, `.env.example`, README, traceability, static Compose tests, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** `docker compose config` passes; static contract tests pass 5/5; format, lint, strict mypy, unit (291), failure (29), and integration (11 explicit skips) gates pass. Live `docker compose up --build -d` and `make smoke` are pending a running Docker daemon.

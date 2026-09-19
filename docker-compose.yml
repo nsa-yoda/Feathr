@@ -1,0 +1,124 @@
+name: ${COMPOSE_PROJECT_NAME:-feathr}
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      EVENT_PLATFORM_ENV: ${EVENT_PLATFORM_ENV:-local}
+      EVENT_PLATFORM_LOG_LEVEL: ${EVENT_PLATFORM_LOG_LEVEL:-INFO}
+      EVENT_PLATFORM_MONGO_URL: ${EVENT_PLATFORM_MONGO_URL:-mongodb://mongo:27017/?replicaSet=rs0}
+      EVENT_PLATFORM_MONGO_DATABASE: ${EVENT_PLATFORM_MONGO_DATABASE:-event_platform}
+      EVENT_PLATFORM_ELASTICSEARCH_URL: ${EVENT_PLATFORM_ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      EVENT_PLATFORM_REDIS_URL: ${EVENT_PLATFORM_REDIS_URL:-redis://redis:6379/0}
+      EVENT_PLATFORM_DEPENDENCY_TIMEOUT_SECONDS: ${EVENT_PLATFORM_DEPENDENCY_TIMEOUT_SECONDS:-5}
+      EVENT_PLATFORM_CORS_ALLOWED_ORIGIN: ${EVENT_PLATFORM_CORS_ALLOWED_ORIGIN:-http://localhost:${UI_PORT:-3000}}
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    init: true
+    mem_limit: 512m
+    cpus: 1.0
+    networks: [feathr]
+
+  mongo:
+    image: mongo:7.0.14
+    command: ["mongod", "--bind_ip_all", "--replSet", "rs0", "--oplogSize", "128"]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --host 127.0.0.1:27017 --eval 'db.adminCommand({ping: 1}).ok' | grep -q 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    mem_limit: 768m
+    networks: [feathr]
+
+  mongo-init:
+    image: mongo:7.0.14
+    environment:
+      MONGO_INIT_URI: mongodb://mongo:27017/?directConnection=true
+      MONGO_REPLICA_URI: mongodb://mongo:27017/?replicaSet=rs0
+      MONGO_INIT_DEADLINE_SECONDS: ${MONGO_INIT_DEADLINE_SECONDS:-90}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/opt/feathr/mongo-init.sh"]
+    volumes:
+      - ./docker/mongo-init.sh:/opt/feathr/mongo-init.sh:ro
+    networks: [feathr]
+    restart: "no"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.3
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms512m -Xmx512m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    mem_limit: 1g
+    networks: [feathr]
+
+  redis:
+    image: redis:7.4.1-alpine
+    command: ["sh", "-c", "if [ -n \"$${REDIS_PASSWORD}\" ]; then exec redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\"; else exec redis-server --appendonly yes; fi"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "if [ -n \"$${REDIS_PASSWORD}\" ]; then redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG; else redis-cli ping | grep -q PONG; fi"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis_data:/data
+    mem_limit: 256m
+    networks: [feathr]
+
+  ui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${UI_PORT:-3000}:8080"
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --quiet http://127.0.0.1:8080/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 128m
+    networks: [feathr]
+
+volumes:
+  mongo_data:
+  mongo_config:
+  elasticsearch_data:
+  redis_data:
+
+networks:
+  feathr:
+    driver: bridge

@@ -1,3 +1,6 @@
 # Scripts
 
-`bootstrap-speckit.sh` is part of this handoff. Codex will add operational reviewer scripts (smoke, Postman runner helpers if needed, etc.) during implementation. Scripts must use strict shell settings and clear exit codes.
+`bootstrap-speckit.sh` is part of this handoff. `smoke` starts the Compose
+stack, waits for bounded health, and verifies ingestion, canonical query,
+search, and realtime statistics. Scripts use strict shell settings and clear
+exit codes. Feature 022 owns any Postman runner helper.
