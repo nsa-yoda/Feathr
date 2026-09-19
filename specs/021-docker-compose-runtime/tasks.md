@@ -21,4 +21,4 @@
 - [x] T011 Run specialized code/comments/tests/errors/types/simplify reviews and remediate blockers/warnings.
 - [x] T012 Run repository gates and live Compose gates where Docker is available; record skips precisely.
 - [x] T013 Create the approved staff review report and complete this task list.
-- [ ] T014 Commit implementation and merge-gate evidence on main, then run post-commit verification.
+- [x] T014 Commit implementation and merge-gate evidence on main, then run post-commit verification.
