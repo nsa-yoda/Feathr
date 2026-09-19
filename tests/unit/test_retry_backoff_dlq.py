@@ -14,7 +14,7 @@ from event_platform.core.logging import JsonLogFormatter
 from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.queue import InProcessQueue
 from event_platform.storage.mongo import EventAlreadyExists, MongoDependencyError
-from event_platform.worker import PersistenceWorker, RetryPolicy
+from event_platform.worker import PersistenceWorker, RetryPolicy, classify_failure
 
 pytestmark = pytest.mark.unit
 DEFAULT_EVENT_ID = UUID("00000000-0000-0000-0000-000000000007")
@@ -163,6 +163,14 @@ def test_retry_policy_rejects_unbounded_configuration(kwargs: dict[str, object])
         RetryPolicy(**kwargs)  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         RetryPolicy().delay_for(0)
+
+
+def test_retry_policy_rejects_nonfinite_jitter_and_classifies_known_failures() -> None:
+    with pytest.raises(ValueError):
+        RetryPolicy(jitter=lambda _spread: float("nan")).delay_for(1)
+    assert classify_failure(MongoDependencyError("insert")) == ("transient", "mongo_dependency")
+    assert classify_failure(EventAlreadyExists("insert")) == ("permanent", "event_conflict")
+    assert classify_failure(RuntimeError("unknown")) == ("unknown", "unknown_failure")
 
 
 @pytest.mark.asyncio
@@ -328,6 +336,30 @@ async def test_unknown_duplicate_lookup_failure_receives_explicit_retry() -> Non
         retry_policy=RetryPolicy(base_delay=1, max_delay=1, jitter_ratio=0),
     )
 
+    assert not await worker.process_once()
+    assert worker.metrics.processing_errors == 1
+    assert worker.metrics.retries == 1
+    assert (await queue.stats()).depth == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_duplicate_lookup_is_retried_without_ack() -> None:
+    value = make_event()
+
+    class MissingLookupStore(FakeStore):
+        async def get_by_id(self, event_id: UUID) -> CanonicalEvent | None:
+            del event_id
+            return None
+
+    queue = InProcessQueue(capacity=1)
+    await queue.send(value.model_dump(mode="json"), message_id=str(value.event_id))
+    store = MissingLookupStore()
+    store.events[value.event_id] = value
+    worker = PersistenceWorker(
+        queue,
+        store,  # type: ignore[arg-type]
+        retry_policy=RetryPolicy(base_delay=1, max_delay=1, jitter_ratio=0),
+    )
     assert not await worker.process_once()
     assert worker.metrics.processing_errors == 1
     assert worker.metrics.retries == 1

@@ -10,13 +10,30 @@ from event_platform.main import create_app
 from event_platform.rate_limit.identity import normalize_client_identity
 from event_platform.rate_limit.local_bucket import LocalTokenBucket
 from event_platform.rate_limit.models import RouteClass, RoutePolicy, consume_tokens
-from event_platform.rate_limit.service import classify_route
+from event_platform.rate_limit.redis_bucket import RateLimitUnavailable, RedisTokenBucket
+from event_platform.rate_limit.service import RateLimiter, classify_route
 
 pytestmark = pytest.mark.unit
 
 
 def policy() -> RoutePolicy:
     return RoutePolicy(RouteClass.NORMAL_READ, capacity=2, refill_per_second=1)
+
+
+def policies() -> dict[RouteClass, RoutePolicy]:
+    return {
+        route_class: RoutePolicy(route_class, capacity=2, refill_per_second=1)
+        for route_class in (
+            RouteClass.INGESTION,
+            RouteClass.NORMAL_READ,
+            RouteClass.EXPENSIVE_READ,
+            RouteClass.OPS,
+        )
+    }
+
+
+def fixed_local_bucket() -> LocalTokenBucket:
+    return LocalTokenBucket(clock=lambda: 100.0, wall_clock=lambda: 1_000.0)
 
 
 def test_token_math_allows_denies_and_refills_deterministically() -> None:
@@ -38,6 +55,62 @@ def test_route_classification_uses_templates_and_exempts_health() -> None:
     assert classify_route(method="GET", path="/search") == RouteClass.EXPENSIVE_READ
     assert classify_route(method="GET", path="/ops/status") == RouteClass.OPS
     assert classify_route(method="GET", path="/health/live") is None
+
+
+def test_rate_limiter_requires_a_complete_non_exempt_policy_registry() -> None:
+    with pytest.raises(ValueError, match="incomplete"):
+        RateLimiter(
+            policies={RouteClass.NORMAL_READ: policy()},
+            local_bucket=fixed_local_bucket(),
+        )
+    invalid = policies()
+    invalid[RouteClass.NORMAL_READ] = RoutePolicy(
+        RouteClass.NORMAL_READ, capacity=2, refill_per_second=1, exempt=True
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        RateLimiter(policies=invalid, local_bucket=fixed_local_bucket())
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_falls_back_to_local_after_redis_unavailability() -> None:
+    class UnavailableBucket:
+        async def consume(self, _key: str, _policy: RoutePolicy) -> object:
+            raise RateLimitUnavailable("eval")
+
+    limiter = RateLimiter(
+        policies=policies(),
+        local_bucket=fixed_local_bucket(),
+        redis_bucket=UnavailableBucket(),  # type: ignore[arg-type]
+    )
+    decision = await limiter.check({"client": ("127.0.0.1", 1234)}, method="GET", path="/events")
+    assert decision is not None
+    assert decision.backend == "local"
+
+
+@pytest.mark.asyncio
+async def test_redis_bucket_validates_script_result_and_maps_transport_failure() -> None:
+    class EvalClient:
+        def __init__(self, result: object) -> None:
+            self.result = result
+
+        async def eval(self, *_args: object) -> object:
+            if isinstance(self.result, BaseException):
+                raise self.result
+            return self.result
+
+    valid = RedisTokenBucket(EvalClient([1, 1, 0, 101]), clock=lambda: 100.0)  # type: ignore[arg-type]
+    decision = await valid.consume("key", policy())
+    assert decision.allowed is True
+    assert decision.remaining == 1
+    assert decision.backend == "redis"
+
+    malformed = RedisTokenBucket(EvalClient([1, "1", 0, 101]), clock=lambda: 100.0)  # type: ignore[arg-type]
+    with pytest.raises(RateLimitUnavailable, match="decode"):
+        await malformed.consume("key", policy())
+
+    unavailable = RedisTokenBucket(EvalClient(TimeoutError()), clock=lambda: 100.0)  # type: ignore[arg-type]
+    with pytest.raises(RateLimitUnavailable, match="eval"):
+        await unavailable.consume("key", policy())
 
 
 def test_identity_ignores_forwarding_by_default_and_accepts_valid_trusted_chain() -> None:

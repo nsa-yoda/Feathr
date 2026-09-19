@@ -111,6 +111,47 @@ async def test_conflicting_duplicate_uses_disposition_hook_and_never_overwrites(
 
 
 @pytest.mark.asyncio
+async def test_conflict_hook_rejection_dead_letters_without_ack() -> None:
+    original = event()
+    incoming = event("signup")
+    queue = InProcessQueue(capacity=1)
+    await queue.send(incoming.model_dump(mode="json"), message_id=str(original.event_id))
+    stored = FakeStore(original)
+
+    async def reject(_delivery: object, _value: CanonicalEvent, _existing: CanonicalEvent) -> bool:
+        return False
+
+    worker = PersistenceWorker(queue, stored, on_conflict=reject)  # type: ignore[arg-type]
+    assert not await worker.process_once()
+    assert worker.metrics.conflicts == 1
+    assert (await queue.stats()).dlq_depth == 1
+    assert (await queue.stats()).depth == 0
+
+
+@pytest.mark.asyncio
+async def test_conflict_hook_failure_is_unknown_and_does_not_leak_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    original = event()
+    incoming = event("signup")
+    queue = InProcessQueue(capacity=1)
+    await queue.send(incoming.model_dump(mode="json"), message_id=str(original.event_id))
+    stored = FakeStore(original)
+
+    async def explode(_delivery: object, _value: CanonicalEvent, _existing: CanonicalEvent) -> bool:
+        raise RuntimeError("secret conflict detail")
+
+    worker = PersistenceWorker(queue, stored, on_conflict=explode)  # type: ignore[arg-type]
+    with caplog.at_level("INFO", logger="event_platform.worker"):
+        assert not await worker.process_once()
+    assert worker.metrics.processing_errors == 1
+    assert worker.metrics.retries == 1
+    assert (await queue.dlq_entries()) == ()
+    assert (await queue.stats()).depth == 1
+    assert all("secret conflict detail" not in record.getMessage() for record in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_failure_before_ack_is_safe_on_redelivery() -> None:
     value = event()
     clock_value = [100.0]
@@ -142,8 +183,17 @@ async def test_run_bounds_concurrency() -> None:
     stop = asyncio.Event()
     worker = PersistenceWorker(queue, stored, concurrency=2)  # type: ignore[arg-type]
     task = asyncio.create_task(worker.run(stop))
-    while worker.metrics.inserted < 4:
+    for _ in range(100):
+        if worker.metrics.inserted >= 4:
+            break
+        if task.done():
+            await task
+            break
         await asyncio.sleep(0)
+    else:
+        stop.set()
+        await task
+        pytest.fail("worker did not process the queued messages within the scheduling bound")
     stop.set()
     await task
     assert stored.max_active <= 2

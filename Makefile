@@ -1,4 +1,4 @@
-.PHONY: format-check lint typecheck test-unit test-integration test-failure
+.PHONY: format-check lint typecheck test-unit test-integration test-failure coverage
 
 format-check:
 	uv run --locked ruff format --check src tests
@@ -17,3 +17,9 @@ test-integration:
 
 test-failure:
 	uv run --locked pytest -q tests/failure -m failure --pass-with-no-tests
+
+coverage:
+	uv run --locked coverage run --branch --source=src/event_platform -m pytest -q tests/unit
+	uv run --locked coverage report --show-missing
+	mkdir -p coverage
+	uv run --locked coverage xml -o coverage/coverage.xml

@@ -45,4 +45,4 @@ At minimum demonstrate:
 
 ## Coverage
 
-Use coverage reporting as a signal, not the sole acceptance metric. Critical queue/idempotency/retry/rate-limit modules should have especially high branch coverage. Repository README must state the actual measured result, not a fabricated target.
+Use coverage reporting as a signal, not the sole acceptance metric. Critical queue/idempotency/retry/rate-limit modules should have especially high branch coverage. Run `make coverage` to execute the locked unit suite, print line and branch coverage, and write `coverage/coverage.xml`. In the socket-capable Feature 018 run, 282 unit tests passed; the XML report measured 3,323 statements at 87.9% line coverage and 844 branches at 75.5% branch coverage (the terminal combined score was 85%). This result is a snapshot of the isolated unit suite and does not replace semantic review, integration, failure, browser, Compose, or Postman evidence.

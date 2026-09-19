@@ -73,9 +73,30 @@ def test_settings_reject_unsupported_values(monkeypatch: pytest.MonkeyPatch) -> 
 @pytest.mark.unit
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("mongo_url", "mongodb://"), ("elasticsearch_url", "http://")],
+    [
+        ("mongo_url", "mongodb://"),
+        ("elasticsearch_url", "http://"),
+        ("redis_url", "redis://"),
+    ],
 )
 def test_settings_reject_hostless_dependency_urls(field: str, value: str) -> None:
+    from event_platform.core.settings import ServiceSettings
+
+    with pytest.raises(ValidationError):
+        ServiceSettings(**{field: value})
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("queue_capacity", 0),
+        ("request_body_max_bytes", 1),
+        ("request_query_max_bytes", 1),
+        ("dependency_timeout_seconds", 0.01),
+    ],
+)
+def test_settings_reject_operational_boundaries(field: str, value: object) -> None:
     from event_platform.core.settings import ServiceSettings
 
     with pytest.raises(ValidationError):

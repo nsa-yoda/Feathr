@@ -161,3 +161,39 @@ async def test_send_rejects_control_character_message_ids() -> None:
     queue = InProcessQueue(capacity=1)
     with pytest.raises(ValueError):
         await queue.send({"value": "poison"}, message_id="bad\nmessage")
+
+
+@pytest.mark.asyncio
+async def test_queue_freezes_nested_tuples_and_rejects_invalid_configuration() -> None:
+    with pytest.raises(ValueError):
+        InProcessQueue(capacity=0)
+    with pytest.raises(ValueError):
+        InProcessQueue(capacity=1, visibility_timeout=-1)
+    with pytest.raises(ValueError):
+        InProcessQueue(capacity=1, send_timeout=-1)
+
+    queue = InProcessQueue(capacity=1)
+    with pytest.raises(ValueError):
+        await queue.send({}, message_id="")
+    with pytest.raises(ValueError):
+        await queue.send({}, operation_id="bad\toperation")
+    await queue.send({"items": ({"nested": ["value"]},)})
+    delivery = await queue.receive()
+    assert isinstance(delivery.body["items"], tuple)
+    with pytest.raises(TypeError):
+        delivery.body["items"][0]["nested"] = ("changed",)  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_queue_stop_accepting_and_boundary_arguments_are_classified() -> None:
+    queue = InProcessQueue(capacity=1)
+    queue.stop_accepting()
+    assert queue.accepting is False
+    with pytest.raises(QueueClosed):
+        await queue.send({"value": 1})
+    with pytest.raises(ValueError):
+        await queue.receive(long_poll=-1)
+    with pytest.raises(ValueError):
+        await queue.change_visibility("missing", "receipt", -1)
+    with pytest.raises(ValueError):
+        await queue.redrive(max_receive_count=0)

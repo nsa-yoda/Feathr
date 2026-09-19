@@ -32,9 +32,10 @@ make typecheck
 make test-unit
 make test-integration
 make test-failure
+make coverage
 ```
 
-The unit suite covers settings, lifespan, import safety, request IDs, and problem responses. The current HTTP contract is in [the foundation contract](specs/001-platform-foundation/contracts/http-foundation.md), and its manual check is in [the quickstart validation](specs/001-platform-foundation/quickstart.md). The integration and failure commands are empty-safe until later features add real-service cases.
+The unit suite is the isolated semantic suite for settings, lifecycle, queue/worker state, query/search/analytics contracts, caching, rate limiting, request IDs, and problem responses. `make coverage` measures executed source lines and branches and writes `coverage/coverage.xml`; it is a signal, not proof of semantic completeness. Coverage does not replace integration tests against MongoDB, Elasticsearch, or Redis, failure-injection tests, browser checks, Compose smoke, or Postman review flows. The current HTTP contract is in [the foundation contract](specs/001-platform-foundation/contracts/http-foundation.md), and its manual check is in [the quickstart validation](specs/001-platform-foundation/quickstart.md).
 
 ## Target reviewer quick start after later features
 
