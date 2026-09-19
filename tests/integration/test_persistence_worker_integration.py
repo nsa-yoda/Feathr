@@ -13,6 +13,7 @@ from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.queue import InProcessQueue
 from event_platform.storage.mongo import MongoEventStore
 from event_platform.worker import PersistenceWorker
+from tests.integration.support import new_namespace, require_mongo
 
 pytestmark = pytest.mark.integration
 
@@ -39,8 +40,11 @@ async def test_real_mongo_worker_ack_and_idempotent_replay() -> None:
     uri = os.getenv("MONGO_URI")
     if not uri:
         pytest.skip("MONGO_URI is not configured")
+    await require_mongo(uri)
     client = AsyncMongoClient(uri)
-    collection = client["event_platform_test"][f"worker_{uuid4().hex}"]
+    namespace = new_namespace()
+    database = client[namespace.database]
+    collection = database[f"worker_{uuid4().hex}"]
     store = MongoEventStore(collection)
     queue = InProcessQueue(capacity=2)
     value = _event()
@@ -55,5 +59,7 @@ async def test_real_mongo_worker_ack_and_idempotent_replay() -> None:
         assert worker.metrics.duplicates == 1
         assert (await collection.count_documents({})) == 1
     finally:
-        await collection.drop()
-        await client.close()
+        try:
+            await database.drop()
+        finally:
+            await client.close()

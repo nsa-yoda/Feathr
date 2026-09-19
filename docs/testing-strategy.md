@@ -45,4 +45,8 @@ At minimum demonstrate:
 
 ## Coverage
 
-Use coverage reporting as a signal, not the sole acceptance metric. Critical queue/idempotency/retry/rate-limit modules should have especially high branch coverage. Run `make coverage` to execute the locked unit suite, print line and branch coverage, and write `coverage/coverage.xml`. In the socket-capable Feature 018 run, 282 unit tests passed; the XML report measured 3,323 statements at 87.9% line coverage and 844 branches at 75.5% branch coverage (the terminal combined score was 85%). This result is a snapshot of the isolated unit suite and does not replace semantic review, integration, failure, browser, Compose, or Postman evidence.
+Use coverage reporting as a signal, not the sole acceptance metric. Critical queue/idempotency/retry/rate-limit modules should have especially high branch coverage. Run `make coverage` to execute the locked unit suite, print line and branch coverage, and write `coverage/coverage.xml`. The current socket-capable repository run passes 286 unit tests; the XML report measures 3,331 statements at 88.0% line coverage and 846 branches at 75.8% branch coverage (the terminal combined score is 86%). This result is a snapshot of the isolated unit suite and does not replace semantic review, integration, failure, browser, Compose, or Postman evidence.
+
+## Integration lifecycle evidence
+
+Feature 019 integration tests use real MongoDB, Elasticsearch, and Redis clients. Set `MONGO_URI`, `ELASTICSEARCH_URL`, and `REDIS_URL` for the scenarios under test; MongoDB projection scenarios require a replica set. The suite uses unique namespaces, bounded monotonic polling with timeout diagnostics, and unconditional cleanup. Missing or unreachable services are explicitly skipped and remain separate from green service-backed evidence.

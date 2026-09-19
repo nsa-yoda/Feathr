@@ -11,6 +11,7 @@ from pymongo import AsyncMongoClient
 
 from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.storage.mongo import EventAlreadyExists, EventQuery, MongoEventStore
+from tests.integration.support import new_namespace, require_mongo
 
 pytestmark = pytest.mark.integration
 
@@ -40,9 +41,12 @@ async def test_real_mongo_indexes_uniqueness_fetch_and_ordering() -> None:
     uri = os.getenv("MONGO_URI")
     if not uri:
         pytest.skip("MONGO_URI is not configured")
+    await require_mongo(uri)
 
     client = AsyncMongoClient(uri)
-    collection = client["event_platform_test"][f"events_{uuid4().hex}"]
+    namespace = new_namespace()
+    database = client[namespace.database]
+    collection = database[f"events_{uuid4().hex}"]
     store = MongoEventStore(collection)
     try:
         first_names = await store.ensure_indexes()
@@ -130,5 +134,7 @@ async def test_real_mongo_indexes_uniqueness_fetch_and_ordering() -> None:
             "event_id": -1,
         }
     finally:
-        await collection.drop()
-        await client.close()
+        try:
+            await database.drop()
+        finally:
+            await client.close()

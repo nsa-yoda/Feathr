@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 from elasticsearch import AsyncElasticsearch
 from fastapi import FastAPI
@@ -38,6 +38,7 @@ from event_platform.rate_limit.service import RateLimiter
 from event_platform.search.elasticsearch import ElasticsearchProjectionWriter
 from event_platform.search.elasticsearch import create_client as create_elasticsearch_client
 from event_platform.search.projection import SearchProjector
+from event_platform.search.search import ElasticsearchSearchService, SearchClient
 from event_platform.storage.change_stream import MongoChangeStreamSource
 from event_platform.storage.checkpoints import MongoProjectionCheckpointStore
 from event_platform.storage.mongo import MongoEventStore
@@ -73,6 +74,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         resources: list[tuple[str, CloseCallback]] = []
         search_projector: SearchProjector | None = None
         injected_event_store = getattr(app.state, "event_store", None)
+        injected_search_service = getattr(app.state, "search_service", None)
         try:
             app.state.queue = InProcessQueue(
                 capacity=app.state.settings.queue_capacity,
@@ -205,8 +207,13 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     ("elasticsearch", elasticsearch_client.close),
                 )
                 app.state.elasticsearch_client = elasticsearch_client
+                app.state.search_service = ElasticsearchSearchService(
+                    cast(SearchClient, elasticsearch_client),
+                    alias=app.state.settings.elasticsearch_alias,
+                )
             else:
                 app.state.elasticsearch_client = None
+                app.state.search_service = injected_search_service
             settings_value = app.state.settings
             policies = {
                 RouteClass.INGESTION: RoutePolicy(
@@ -348,6 +355,10 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             del app.state.lifecycle
             del app.state.mongo_client
             del app.state.elasticsearch_client
+            del app.state.search_service
+            del app.state.realtime_cache
+            if hasattr(app.state, "realtime_stats_service"):
+                del app.state.realtime_stats_service
             del app.state.event_store
             del app.state.search_projector
             del app.state.metrics

@@ -276,3 +276,25 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** keep coverage output generated and ignored, leave CI ownership to Feature 024, and document that integration, failure, browser, Compose, and Postman evidence remain separate.
 - **Artifacts/code affected:** `specs/018-unit-test-coverage/`, `Makefile`, `pyproject.toml`, `uv.lock`, `.gitignore`, README/testing strategy, traceability, queue/worker/retry/rate/settings tests, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** focused semantic selection passes 195 tests; the socket-capable full unit gate passes 282 tests with two upstream dependency deprecation warnings; `make coverage` writes XML and measures 3,323 statements at 87.9% line coverage and 844 branches at 75.5% branch coverage (85% terminal combined score); integration selection skips 8 tests without external services; failure suite passes 19; format, lint, strict mypy, and diff gates pass.
+
+### 2026-09-18 — Feature 019 real-service integration lifecycles
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify, plan, and implement real MongoDB, Elasticsearch, and Redis lifecycle coverage with bounded polling and deterministic cleanup.
+- **AI proposal/contribution:** added a shared integration namespace/poll harness, application-level HTTP lifecycle tests, configured search-service ownership in the lifespan, and rebuild/live continuity assertions.
+- **What was useful:** Serena searches exposed the existing direct-service integration boundaries and the fixed checkpoint sleep; replacing it with the shared monotonic poll helper kept eventual consistency bounded and diagnostic.
+- **Pushback/correction:** the first app wiring overwrote injected test search services when Elasticsearch was absent, breaking cursor route coverage; preserving injected state restored the existing unit contract. Type checking also required an explicit protocol cast at the Elasticsearch boundary.
+- **Human decision and rationale:** missing or unreachable external services remain explicit skips, not false green evidence; Feature 021 owns Compose startup and Feature 019 consumes endpoint variables.
+- **Artifacts/code affected:** `specs/019-integration-test-lifecycles/`, `tests/integration/support.py`, app lifecycle integration tests, `src/event_platform/main.py`, `tests/integration/test_rebuild_live.py`, `tests/integration/test_search_projection_integration.py`, README/testing docs, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** Ruff format/lint, strict mypy, 20 focused unit tests, and 11 integration tests collected; endpoint-free integration selection explicitly skipped 11 tests. Full service-backed execution remains a review-gate requirement when the real endpoints are available.
+
+### 2026-09-19 — Feature 019 review-gate closure
+
+- **Tool/model:** Codex with Serena MCP and sequential specialized review agents.
+- **Task:** close staff and comprehensive review findings and move Feature 019 to the main-branch merge gate.
+- **AI proposal/contribution:** identified missing replica-set gating, shared-database isolation, synthetic rebuild-live coverage, unsafe/incomplete poll diagnostics, partial setup cleanup, and missing client-closure assertions; proposed targeted fixes and review evidence.
+- **What was useful:** repeated read-only reviews after each correction made the acceptance boundary explicit. Serena pattern searches verified the final app-state ownership, capability probes, poll helper, task cleanup, and traceability status.
+- **Pushback/correction:** service-backed integration execution was unavailable locally, so the task and docs were narrowed to state 11 collected and 11 explicit skips instead of claiming green real-service passes. The final gate still requires running with configured endpoints before those scenarios can be called service-backed.
+- **Human decision and rationale:** accept the feature on main with explicit skip evidence because the static, unit, failure, and review gates are green and the tests fail closed when required services are absent.
+- **Artifacts/code affected:** Feature 019 review report, tasks/checklist/contract, integration support and tests, app lifespan state cleanup, README/testing/traceability/workflow docs, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** `make format-check`, `make lint`, `make typecheck`, `make test-unit` (286 passed), `make test-integration` (11 explicit skips), `make test-failure` (19 passed), coverage (286 passed; 3,331 statements, 88.0% line, 846 branches, 75.8% branch, 86% terminal combined), and `git diff --check`; staff report approved with zero open findings.

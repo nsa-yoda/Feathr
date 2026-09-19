@@ -12,6 +12,7 @@ from pymongo import AsyncMongoClient
 from event_platform.api.routes.stats import AnalyticsRange, build_stats_pipeline
 from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.storage.mongo import MongoEventStore
+from tests.integration.support import new_namespace, require_mongo
 
 pytestmark = pytest.mark.integration
 
@@ -39,9 +40,12 @@ async def test_real_mongo_date_trunc_counts_hour_day_and_monday_week() -> None:
     uri = os.getenv("MONGO_URI")
     if not uri:
         pytest.skip("MONGO_URI is not configured")
+    await require_mongo(uri)
 
     client = AsyncMongoClient(uri)
-    collection = client["event_platform_test"][f"analytics_{uuid4().hex}"]
+    namespace = new_namespace()
+    database = client[namespace.database]
+    collection = database[f"analytics_{uuid4().hex}"]
     store = MongoEventStore(collection)
     sunday = datetime(2026, 1, 4, 23, 59, tzinfo=UTC)
     events = [
@@ -109,5 +113,7 @@ async def test_real_mongo_date_trunc_counts_hour_day_and_monday_week() -> None:
             (datetime(2026, 1, 5, tzinfo=UTC), "signup", 1),
         ]
     finally:
-        await collection.drop()
-        await client.close()
+        try:
+            await database.drop()
+        finally:
+            await client.close()

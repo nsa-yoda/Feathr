@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from event_platform.core.logging import JsonLogFormatter
 from event_platform.core.settings import ServiceSettings
 from event_platform.main import create_app
+from event_platform.search.search import ElasticsearchSearchService
 
 
 @pytest.mark.unit
@@ -57,3 +58,41 @@ def test_lifespan_emits_structured_state_events(caplog: pytest.LogCaptureFixture
         assert structured["event"] in events
         assert structured["service"] == "event_platform"
         assert structured["logger"] == "event_platform.lifecycle"
+
+
+def test_configured_elasticsearch_search_service_is_owned_by_lifespan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeElasticsearch:
+        def __init__(self) -> None:
+            self.closed = False
+            self.calls: list[dict[str, object]] = []
+
+        async def info(self) -> dict[str, str]:
+            return {"status": "ok"}
+
+        async def close(self) -> None:
+            self.closed = True
+
+        async def search(self, **kwargs: object) -> dict[str, object]:
+            self.calls.append(kwargs)
+            return {"hits": {"hits": []}}
+
+    client = FakeElasticsearch()
+    monkeypatch.setattr(
+        "event_platform.main.create_elasticsearch_client", lambda *args, **kwargs: client
+    )
+    app = create_app(
+        ServiceSettings(
+            env="test", elasticsearch_url="http://es.test", elasticsearch_alias="events-feature019"
+        )
+    )
+
+    with TestClient(app) as test_client:
+        assert isinstance(app.state.search_service, ElasticsearchSearchService)
+        response = test_client.get("/events/search?q=term")
+        assert response.status_code == 200
+
+    assert not hasattr(app.state, "search_service")
+    assert client.closed is True
+    assert client.calls[0]["index"] == "events-feature019"

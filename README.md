@@ -75,3 +75,7 @@ Codex must replace this planning README with a complete submission README contai
 14. **AI in My Workflow** — tools used, concrete contributions, corrections/pushback, and how AI changed speed/quality, grounded in `docs/ai-workflow-log.md`
 
 Do not leave generic AI boilerplate. The panel specifically wants evidence of strategic AI use and human judgment.
+
+## Integration lifecycles
+
+Feature 019's lifecycle scenarios use real MongoDB, Elasticsearch, and Redis endpoints supplied through `MONGO_URI`, `ELASTICSEARCH_URL`, and `REDIS_URL`. The feature covers HTTP ingestion to canonical query, Mongo change-stream projection to search, analytics grouping, realtime cache miss/hit, duplicate redelivery, and online rebuild continuity. Run `make test-integration`; missing or unavailable services are explicit skips, not passing evidence. Feature 019 scenarios use unique namespaces, bounded poll-until assertions, and cleanup in `finally` blocks.
