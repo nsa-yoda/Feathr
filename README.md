@@ -79,3 +79,8 @@ Do not leave generic AI boilerplate. The panel specifically wants evidence of st
 ## Integration lifecycles
 
 Feature 019's lifecycle scenarios use real MongoDB, Elasticsearch, and Redis endpoints supplied through `MONGO_URI`, `ELASTICSEARCH_URL`, and `REDIS_URL`. The feature covers HTTP ingestion to canonical query, Mongo change-stream projection to search, analytics grouping, realtime cache miss/hit, duplicate redelivery, and online rebuild continuity. Run `make test-integration`; missing or unavailable services are explicit skips, not passing evidence. Feature 019 scenarios use unique namespaces, bounded poll-until assertions, and cleanup in `finally` blocks.
+
+Feature 020's deterministic failure selection runs without external endpoints:
+`make test-failure` currently passes 29 tests. See the [failure-suite
+README](tests/failure/README.md) for the covered invariants and keep this
+evidence separate from Feature 019's service-backed integration lifecycles.

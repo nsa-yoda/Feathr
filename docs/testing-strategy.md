@@ -43,9 +43,20 @@ At minimum demonstrate:
 - rate limit exceeded -> 429 and retry headers;
 - invalid cursor/query/input -> stable 4xx problem documents.
 
+Feature 020 adds deterministic failure-injection coverage for the complete
+outage and recovery boundaries. The current failure gate contains 29 passing
+tests and uses manual clocks, finite failure counters, typed fake ports, and
+immediate awaitable sleeps. It proves no false acknowledgement during Mongo
+failure, unhealthy readiness, deterministic queue 503, post-insert redelivery
+idempotency, one-entry DLQ exhaustion, Elasticsearch checkpoint retention and
+recovery, invalid-resume reconciliation, Redis cache/rate-limit fallback, and
+serving-alias safety after rebuild failure. These tests do not claim real
+service outage behavior; Feature 019's integration selection owns real MongoDB,
+Elasticsearch, and Redis lifecycle evidence.
+
 ## Coverage
 
-Use coverage reporting as a signal, not the sole acceptance metric. Critical queue/idempotency/retry/rate-limit modules should have especially high branch coverage. Run `make coverage` to execute the locked unit suite, print line and branch coverage, and write `coverage/coverage.xml`. The current socket-capable repository run passes 286 unit tests; the XML report measures 3,331 statements at 88.0% line coverage and 846 branches at 75.8% branch coverage (the terminal combined score is 86%). This result is a snapshot of the isolated unit suite and does not replace semantic review, integration, failure, browser, Compose, or Postman evidence.
+Use coverage reporting as a signal, not the sole acceptance metric. Critical queue/idempotency/retry/rate-limit modules should have especially high branch coverage. Run `make coverage` to execute the locked unit suite, print line and branch coverage, and write `coverage/coverage.xml`. The current socket-capable repository run passes 286 unit tests; the XML report measures 3,347 statements at 87.8% line coverage and 846 branches at 75.8% branch coverage (the terminal combined score is 85%). This result is a snapshot of the isolated unit suite and does not replace semantic review, integration, failure, browser, Compose, or Postman evidence.
 
 ## Integration lifecycle evidence
 

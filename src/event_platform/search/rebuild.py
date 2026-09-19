@@ -23,6 +23,26 @@ from event_platform.search.mapping import (
 
 logger = logging.getLogger("event_platform.search_rebuild")
 
+SAFE_REBUILD_ERROR_CODES = frozenset(
+    {
+        "alias_swap_failed",
+        "bulk_document_invalid",
+        "bulk_failed",
+        "bulk_rejected",
+        "bulk_retry_exhausted",
+        "bulk_unavailable",
+        "count_failed",
+        "count_invalid",
+        "elasticsearch_unavailable",
+        "index_cleanup_failed",
+        "index_create_failed",
+        "rebuild_lease_lost",
+        "rebuild_lease_unavailable",
+        "rebuild_unexpected_failure",
+        "rebuild_verification_failed",
+    }
+)
+
 
 class RebuildPhase(StrEnum):
     ACQUIRING = "acquiring"
@@ -39,8 +59,9 @@ class RebuildError(RuntimeError):
     """Safe rebuild failure with a bounded category."""
 
     def __init__(self, code: str, *, transient: bool = False) -> None:
-        super().__init__(code)
-        self.code = code
+        safe_code = code if code in SAFE_REBUILD_ERROR_CODES else "rebuild_unexpected_failure"
+        super().__init__(safe_code)
+        self.code = safe_code
         self.transient = transient
 
 
@@ -228,26 +249,59 @@ class SearchRebuilder:
             self._emit(record, "search_rebuild.completed")
             return record
         except RebuildError as error:
-            record = record.model_copy(
-                update={
-                    "phase": RebuildPhase.FAILED,
-                    "completed_at": self._now(),
-                    "failures": tuple((*record.failures, RebuildFailure(code=error.code))[-32:]),
-                    "failure_count": record.failure_count + 1,
-                }
-            )
-            await self._state.save(record)
-            self._emit(record, "search_rebuild.failed")
-            delete_index = getattr(self._search, "delete_index", None)
-            if delete_index is not None:
-                try:
-                    await delete_index(target_index)
-                except RebuildError as cleanup_error:
-                    self._emit(record, f"search_rebuild.cleanup_failed.{cleanup_error.code}")
+            await self._record_failure(record, target_index, error.code)
+            raise
+        except Exception:
+            await self._record_failure(record, target_index, "rebuild_unexpected_failure")
             raise
         finally:
             if live_target_active:
-                await self._set_live_target(None)
+                try:
+                    await self._set_live_target(None)
+                except Exception as error:
+                    logger.error(
+                        "search rebuild live-target cleanup failed",
+                        extra={
+                            "event": "search_rebuild.live_target_cleanup_failed",
+                            "error_type": type(error).__name__,
+                        },
+                    )
+
+    async def _record_failure(
+        self, record: RebuildRecord, target_index: str, failure_code: str
+    ) -> None:
+        failed = record.model_copy(
+            update={
+                "phase": RebuildPhase.FAILED,
+                "completed_at": self._now(),
+                "failures": tuple((*record.failures, RebuildFailure(code=failure_code))[-32:]),
+                "failure_count": record.failure_count + 1,
+            }
+        )
+        try:
+            await self._state.save(failed)
+        except Exception as error:
+            logger.error(
+                "search rebuild failure state persistence failed",
+                extra={
+                    "event": "search_rebuild.failure_state_persist_failed",
+                    "error_type": type(error).__name__,
+                },
+            )
+        self._emit(failed, "search_rebuild.failed")
+        delete_index = getattr(self._search, "delete_index", None)
+        if delete_index is None:
+            return
+        try:
+            await delete_index(target_index)
+        except Exception as error:
+            logger.error(
+                "search rebuild target cleanup failed",
+                extra={
+                    "event": "search_rebuild.cleanup_failed",
+                    "error_type": type(error).__name__,
+                },
+            )
 
     async def _transition(self, record: RebuildRecord, phase: RebuildPhase) -> RebuildRecord:
         updated = record.model_copy(update={"phase": phase})

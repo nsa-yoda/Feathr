@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from math import isfinite
 from random import uniform
+from typing import Protocol
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -23,7 +24,6 @@ from event_platform.queue import (
 from event_platform.storage.mongo import (
     EventAlreadyExists,
     MongoDependencyError,
-    MongoEventStore,
 )
 
 logger = logging.getLogger("event_platform.worker")
@@ -42,6 +42,14 @@ class WorkerMetrics:
 
 ConflictDisposition = Callable[[Delivery, CanonicalEvent, CanonicalEvent], Awaitable[bool]]
 FailureClassification = DLQClassification
+
+
+class PersistenceStore(Protocol):
+    """Canonical persistence boundary used by the worker."""
+
+    async def insert(self, event: CanonicalEvent) -> None: ...
+
+    async def get_by_id(self, event_id: UUID) -> CanonicalEvent | None: ...
 
 
 def _random_jitter(spread: float) -> float:
@@ -100,7 +108,7 @@ class PersistenceWorker:
     def __init__(
         self,
         queue: InProcessQueue,
-        store: MongoEventStore,
+        store: PersistenceStore,
         *,
         concurrency: int = 1,
         on_conflict: ConflictDisposition | None = None,

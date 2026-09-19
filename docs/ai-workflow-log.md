@@ -298,3 +298,25 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** accept the feature on main with explicit skip evidence because the static, unit, failure, and review gates are green and the tests fail closed when required services are absent.
 - **Artifacts/code affected:** Feature 019 review report, tasks/checklist/contract, integration support and tests, app lifespan state cleanup, README/testing/traceability/workflow docs, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** `make format-check`, `make lint`, `make typecheck`, `make test-unit` (286 passed), `make test-integration` (11 explicit skips), `make test-failure` (19 passed), coverage (286 passed; 3,331 statements, 88.0% line, 846 branches, 75.8% branch, 86% terminal combined), and `git diff --check`; staff report approved with zero open findings.
+
+### 2026-09-19 — Feature 020 deterministic failure injection and recovery tests
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** specify and implement deterministic proof for Mongo, worker, queue, Elasticsearch, Redis, checkpoint, DLQ, and rebuild failure semantics.
+- **AI proposal/contribution:** mapped the request to existing typed seams, added a Feature 020 spec/plan/contracts/tasks set, and added eight behavior-level failure tests using manual clocks, finite failure counters, injected stores/writers, and an in-memory alias port.
+- **What was useful:** Serena searches showed that most production guarantees already existed but were distributed across unit and failure modules. The new acceptance selection ties them to the requested outage invariants without OS-level chaos or external-service assumptions.
+- **Pushback/correction:** invalid checkpoint state is exposed as the safe public `resume_history_invalid` reconciliation code rather than leaking the internal `checkpoint_invalid` storage detail; rebuild bulk failures are recorded as verification failure before any alias swap.
+- **Human decision and rationale:** preserve Mongo as canonical, keep Elasticsearch rebuildable and Redis disposable, and treat deterministic failure evidence as separate from Feature 019 real-service integration evidence.
+- **Artifacts/code affected:** `specs/020-failure-injection-tests/`, `tests/failure/test_failure_injection_recovery.py`, failure README, README/testing strategy, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** the Feature 020 file passes 10 focused tests; the full failure selection passes 29 tests with two existing upstream dependency deprecation warnings. Full repository gates and review-gate evidence follow after remediation.
+
+### 2026-09-19 — Feature 020 review-gate closure
+
+- **Tool/model:** Codex with Serena MCP and sequential specialized review agents.
+- **Task:** move Feature 020 through staff and comprehensive review gates after deterministic failure evidence was implemented.
+- **AI proposal/contribution:** review agents identified and helped close disconnected canonical-query/readiness assertions, incomplete alias/cleanup fakes, unexpected rebuild exception handling, broad test-side types, nested async setup, duplicated documentation, and unbounded rebuild error codes.
+- **What was useful:** Serena-backed searches kept the review anchored to existing queue, worker, health, projection, cache, rate-limit, and rebuild contracts instead of introducing a parallel fault framework.
+- **Pushback/correction:** deterministic failure tests remain separate from Feature 019 real-service evidence; integration endpoints are unavailable locally, so the final record states 11 explicit skips rather than claiming service-backed passes.
+- **Human decision and rationale:** approve the feature after all blockers/warnings were closed, with `SearchRebuilder` now preserving the original unexpected exception while recording bounded failed state and independently attempting cleanup.
+- **Artifacts/code affected:** Feature 020 staff report, `PersistenceStore`, rebuild failure boundary/code allowlist, deterministic failure tests, and updated testing/traceability documentation.
+- **Validation/review performed:** staff checklist report `specs/020-failure-injection-tests/reviews/review-20260919-004350.md` is approved with 0 open blockers/warnings; 286 unit tests, 29 failure tests, 11 explicit integration skips, coverage 3,347 statements/87.8% line/846 branches/75.8% branch, format/lint/typecheck/coverage/diff gates all pass.

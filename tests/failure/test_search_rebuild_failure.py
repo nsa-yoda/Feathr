@@ -35,6 +35,10 @@ class State:
         self.records.append(record)
         return True
 
+    async def renew(self, record: RebuildRecord, lease_expires_at: datetime) -> bool:
+        del record, lease_expires_at
+        return True
+
     async def save(self, record: RebuildRecord) -> None:
         self.records.append(record)
 
@@ -43,9 +47,13 @@ class State:
 
 
 class Search:
+    def __init__(self) -> None:
+        self.alias = "events-v000001"
+        self.deleted: list[str] = []
+
     async def resolve_alias(self, alias: str) -> str | None:
         del alias
-        return "events-v000001"
+        return self.alias
 
     async def create_index(self, index: str, definition: Mapping[str, object]) -> None:
         del index, definition
@@ -62,6 +70,9 @@ class Search:
         del alias, old_index, new_index
         raise RebuildError("alias_swap_failed")
 
+    async def delete_index(self, index: str) -> None:
+        self.deleted.append(index)
+
 
 class Source:
     def scan(self) -> AsyncIterator[CanonicalEvent]:
@@ -74,8 +85,11 @@ class Source:
 @pytest.mark.asyncio
 async def test_alias_swap_failure_leaves_record_failed_without_claiming_success() -> None:
     state = State()
-    rebuilder = SearchRebuilder(state=state, search=Search(), source=Source(), owner="reviewer")
+    search = Search()
+    rebuilder = SearchRebuilder(state=state, search=search, source=Source(), owner="reviewer")
     with pytest.raises(RebuildError, match="alias_swap_failed"):
         await rebuilder.run()
     assert state.records[-1].phase == "failed"
     assert all(record.phase != "completed" for record in state.records)
+    assert search.alias == "events-v000001"
+    assert search.deleted == ["events-v000002"]
