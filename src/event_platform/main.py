@@ -27,6 +27,7 @@ from event_platform.api.routes.rebuild import router as rebuild_router
 from event_platform.api.routes.search import router as search_router
 from event_platform.api.routes.stats import router as stats_router
 from event_platform.cache.realtime import RedisCache
+from event_platform.core.composition import build_application_services
 from event_platform.core.lifecycle import (
     CloseCallback,
     LifecycleSupervisor,
@@ -112,6 +113,11 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             resources.append(("queue", app.state.queue.close))
             app.state.metrics = MetricsRegistry()
             app.state.health = HealthRegistry(app.state.metrics)
+            app.state.services = build_application_services(
+                queue=app.state.queue,
+                metrics=app.state.metrics,
+                health=app.state.health,
+            )
             app.state.mongo_ready = False
             app.state.persistence_worker_ready = False
             app.state.search_projector = None
@@ -247,6 +253,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     },
                 )
                 app.state.event_store = MongoEventStore(event_collection)
+                app.state.services.event_store = app.state.event_store
                 app.state.idempotency_registry = MongoIdempotencyRegistry(
                     mongo_database["event_idempotency"]
                 )
@@ -254,9 +261,11 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     mongo_database["search_rebuilds"],
                     mongo_database["search_rebuild_leases"],
                 )
+                app.state.services.rebuild_store = app.state.rebuild_store
             else:
                 app.state.mongo_client = None
                 app.state.event_store = injected_event_store
+                app.state.services.event_store = injected_event_store
                 app.state.idempotency_registry = InMemoryIdempotencyRegistry()
                 app.state.rebuild_store = getattr(app.state, "rebuild_store", None)
             if app.state.settings.elasticsearch_url:
@@ -280,6 +289,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                         app.state.cursor_keys[1] if len(app.state.cursor_keys) > 1 else None
                     ),
                 )
+                app.state.services.search_service = app.state.search_service
                 try:
                     await ensure_search_alias(
                         elasticsearch_client, app.state.settings.elasticsearch_alias
@@ -298,6 +308,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             else:
                 app.state.elasticsearch_client = None
                 app.state.search_service = injected_search_service
+                app.state.services.search_service = injected_search_service
             settings_value = app.state.settings
             policies = {
                 RouteClass.INGESTION: RoutePolicy(

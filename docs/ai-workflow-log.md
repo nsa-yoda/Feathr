@@ -219,6 +219,12 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Contribution:** changed health probes to concurrent per-probe/overall deadlines while keeping liveness dependency-free and metric labels bounded.
 - **Validation:** health/observability suite passed 6 tests; Ruff and strict mypy passed.
 
+### 2026-09-20 — Feature 035 composition and dependency typing
+
+- **Task:** make application composition explicit and testable.
+- **Contribution:** added `ApplicationServices` and a small factory, then wired lifespan-owned event/search/rebuild dependencies while preserving existing cleanup order.
+- **Validation:** composition test plus full Ruff and strict mypy passed.
+
 ### 2026-09-18 — Feature 009 review gate and merge preparation
 
 - **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.
