@@ -231,6 +231,12 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Contribution:** added strict configured integration/JUnit skip gate, tracked archive validator, Make targets, and CI archive invocation.
 - **Validation:** archive check, developer workflow tests, Ruff, and strict mypy passed. Service-backed strict integration requires configured endpoints.
 
+### 2026-09-20 — Feature 037 production security boundary
+
+- **Task:** add a fail-closed production authentication and transport-security boundary.
+- **Contribution:** added deployment token validation, protected-route bearer middleware, production HSTS, placeholder-secret rejection, and security regressions while retaining local/test convenience.
+- **Validation:** security/settings suite passed 18 tests; Ruff and strict mypy passed. Tenant/role identity, TLS termination, and secret-manager integration remain deployment-specific.
+
 ### 2026-09-18 — Feature 009 review gate and merge preparation
 
 - **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.

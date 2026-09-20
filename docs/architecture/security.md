@@ -2,6 +2,13 @@
 
 This assessment has no end-user authentication requirement, so the security focus is robust input handling and service abuse prevention.
 
+Production deployments add a fail-closed bearer-token boundary for every route
+except `/health/live`, require a shared cursor signing key and canonical Mongo,
+reject placeholder operator credentials, and emit HSTS. The token is supplied by
+deployment configuration; it is never logged or returned. A real deployment must
+replace this reference operator token with its identity provider and tenant/role
+authorization boundary, and terminate TLS at a trusted edge.
+
 - mandatory rate limiting with Redis + local fallback;
 - bounded body size and metadata depth/size;
 - strict URL/timestamp/string validation;

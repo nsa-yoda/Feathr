@@ -100,4 +100,5 @@ def test_loaded_production_configuration_names_missing_mongo(
     assert error.value.fields == (
         "EVENT_PLATFORM_CURSOR_SIGNING_KEY",
         "EVENT_PLATFORM_MONGO_URL",
+        "EVENT_PLATFORM_PRODUCTION_API_TOKEN",
     )

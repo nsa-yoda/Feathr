@@ -29,6 +29,8 @@ def test_settings_accept_documented_environment_values(monkeypatch: pytest.Monke
     monkeypatch.setenv("EVENT_PLATFORM_ENV", "production")
     monkeypatch.setenv("EVENT_PLATFORM_LOG_LEVEL", "WARNING")
     monkeypatch.setenv("EVENT_PLATFORM_MONGO_URL", "mongodb://mongo.test:27017")
+    monkeypatch.setenv("EVENT_PLATFORM_CURSOR_SIGNING_KEY", "c" * 32)
+    monkeypatch.setenv("EVENT_PLATFORM_PRODUCTION_API_TOKEN", "t" * 32)
 
     settings = ServiceSettings()
     assert settings.env == "production"

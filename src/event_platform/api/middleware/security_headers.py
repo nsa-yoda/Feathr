@@ -19,6 +19,11 @@ class SecurityHeadersMiddleware:
                 headers.setdefault(
                     "Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'"
                 )
+                settings = getattr(getattr(scope.get("app"), "state", None), "settings", None)
+                if getattr(settings, "env", "local") == "production":
+                    headers.setdefault(
+                        "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+                    )
             await send(message)
 
         await self.app(scope, receive, send_with_security_headers)

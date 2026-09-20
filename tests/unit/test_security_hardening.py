@@ -123,6 +123,50 @@ def test_security_settings_reject_wildcard_and_bound_timeout() -> None:
         ServiceSettings(dependency_timeout_seconds=0.01)
 
 
+def test_production_requires_non_placeholder_operator_token() -> None:
+    with pytest.raises(ValueError, match="production_api_token"):
+        ServiceSettings(
+            env="production",
+            mongo_url="mongodb://mongo:27017",
+            cursor_signing_key="c" * 32,
+            production_api_token="changeme",
+        )
+
+
+@pytest.mark.asyncio
+async def test_production_protected_routes_require_bearer_token() -> None:
+    from event_platform.api.middleware.production_auth import ProductionAuthMiddleware
+
+    class State:
+        settings = ServiceSettings(
+            env="production",
+            mongo_url="mongodb://mongo:27017",
+            cursor_signing_key="c" * 32,
+            production_api_token="t" * 32,
+        )
+
+    class App:
+        state = State()
+
+    sent: list[dict[str, object]] = []
+
+    async def downstream(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "path": "/health/components",
+        "headers": [],
+        "state": {},
+        "app": App(),
+    }
+    await ProductionAuthMiddleware(downstream)(scope, lambda: None, send)
+    assert sent[0]["status"] == 401
+
+
 def test_query_and_search_input_abuse_returns_safe_validation() -> None:
     with TestClient(create_app(ServiceSettings(env="test"))) as client:
         control = client.get("/events/search", params={"q": "unsafe\nterm"})

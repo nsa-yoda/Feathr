@@ -39,6 +39,7 @@ class ServiceSettings(BaseSettings):
     elasticsearch_alias: str = Field(default="events-search", min_length=1, max_length=255)
     cursor_signing_key: str | None = Field(default=None, min_length=16, max_length=128)
     cursor_previous_signing_key: str | None = Field(default=None, min_length=16, max_length=128)
+    production_api_token: str | None = Field(default=None, min_length=32, max_length=256)
     redis_url: str | None = Field(default=None, max_length=2_048)
     realtime_cache_ttl_seconds: int = Field(default=10, ge=1, le=300)
     realtime_default_window_minutes: int = Field(default=5, ge=1, le=60)
@@ -84,6 +85,15 @@ class ServiceSettings(BaseSettings):
     def validate_cursor_key(cls, value: str | None, info: ValidationInfo) -> str | None:
         if info.data.get("env") == "production" and not value:
             raise ValueError("cursor_signing_key is required in production")
+        return value
+
+    @field_validator("production_api_token")
+    @classmethod
+    def validate_production_token(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if info.data.get("env") == "production" and not value:
+            raise ValueError("production_api_token is required in production")
+        if value is not None and value.lower() in {"changeme", "password", "development-token"}:
+            raise ValueError("production_api_token must not be a placeholder")
         return value
 
     @field_validator("redis_url")

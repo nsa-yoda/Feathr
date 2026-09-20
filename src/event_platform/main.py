@@ -12,6 +12,7 @@ from pymongo import AsyncMongoClient
 from redis.asyncio import Redis
 
 from event_platform.api.middleware.body_limit import BodyLimitMiddleware
+from event_platform.api.middleware.production_auth import ProductionAuthMiddleware
 from event_platform.api.middleware.rate_limit import RateLimitMiddleware
 from event_platform.api.middleware.request_id import RequestIdMiddleware
 from event_platform.api.middleware.security_headers import (
@@ -474,6 +475,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(ConfiguredCORSMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(ProductionAuthMiddleware)
     app.add_middleware(RequestIdMiddleware)
     register_problem_handlers(app)
     app.include_router(health_router)
