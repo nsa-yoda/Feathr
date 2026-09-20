@@ -55,6 +55,7 @@ from event_platform.storage.bootstrap import (
 from event_platform.storage.change_stream import MongoChangeStreamSource
 from event_platform.storage.checkpoints import MongoProjectionCheckpointStore
 from event_platform.storage.mongo import MongoEventStore
+from event_platform.storage.rebuilds import MongoRebuildStore
 from event_platform.worker.persistence import PersistenceWorker
 
 logger = logging.getLogger("event_platform.lifecycle")
@@ -232,9 +233,14 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     },
                 )
                 app.state.event_store = MongoEventStore(event_collection)
+                app.state.rebuild_store = MongoRebuildStore(
+                    mongo_database["search_rebuilds"],
+                    mongo_database["search_rebuild_leases"],
+                )
             else:
                 app.state.mongo_client = None
                 app.state.event_store = injected_event_store
+                app.state.rebuild_store = getattr(app.state, "rebuild_store", None)
             if app.state.settings.elasticsearch_url:
                 elasticsearch_client = create_elasticsearch_client(
                     app.state.settings.elasticsearch_url,

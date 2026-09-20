@@ -215,6 +215,32 @@ async def test_count_mismatch_never_swaps_and_deactivates_live_target() -> None:
     assert target_events[-1] is None
 
 
+@pytest.mark.asyncio
+async def test_post_swap_state_failure_does_not_delete_serving_target() -> None:
+    class StateFailsAfterSwap(FakeState):
+        def __init__(self) -> None:
+            super().__init__()
+            self.save_count = 0
+
+        async def save(self, record: RebuildRecord) -> None:
+            self.save_count += 1
+            if record.phase == RebuildPhase.COMPLETED:
+                raise RuntimeError("state unavailable")
+            await super().save(record)
+
+    state = StateFailsAfterSwap()
+    search = FakeSearch()
+    with pytest.raises(RuntimeError):
+        await SearchRebuilder(
+            state=state,
+            search=search,
+            source=FakeSource([event(1)]),
+            owner="reviewer",
+        ).run()
+    assert search.swaps
+    assert "delete" not in search.events
+
+
 def test_cli_requires_confirmation_for_mutating_command() -> None:
     parser = build_parser()
     assert "--confirm" in parser.format_help() or "run" in parser.format_help()

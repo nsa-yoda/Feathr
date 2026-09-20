@@ -89,6 +89,9 @@ class RebuildRecord(BaseModel):
     owner: str = Field(min_length=1, max_length=128)
     lease_expires_at: datetime
     rollback_until: datetime | None = None
+    source_high_water: str | None = Field(default=None, max_length=256)
+    projector_checkpoint: str | None = Field(default=None, max_length=256)
+    fencing_token: int = Field(default=0, ge=0)
 
 
 class RebuildLeaseStore(Protocol):
@@ -99,6 +102,8 @@ class RebuildLeaseStore(Protocol):
     async def save(self, record: RebuildRecord) -> None: ...
 
     async def latest(self) -> RebuildRecord | None: ...
+
+    async def get(self, rebuild_id: UUID) -> RebuildRecord | None: ...
 
 
 class RebuildSearchPort(Protocol):
@@ -167,6 +172,7 @@ class SearchRebuilder:
         self._set_live_target = set_live_target or _noop_target
         self._now = now
         self._sleep = sleep
+        self._alias_swapped = False
 
     async def run(self) -> RebuildRecord:
         started = self._now()
@@ -237,6 +243,7 @@ class SearchRebuilder:
                 raise RebuildError("rebuild_verification_failed")
             record = await self._transition(record, RebuildPhase.SWAPPING)
             await self._search.swap_alias(self._alias, old_index, target_index)
+            self._alias_swapped = True
             completed = self._now()
             record = record.model_copy(
                 update={
@@ -290,6 +297,8 @@ class SearchRebuilder:
             )
         self._emit(failed, "search_rebuild.failed")
         delete_index = getattr(self._search, "delete_index", None)
+        if self._alias_swapped:
+            return
         if delete_index is None:
             return
         try:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import UUID
 
 from pymongo import ReturnDocument
 from pymongo.asynchronous.collection import AsyncCollection
@@ -31,6 +32,8 @@ class MongoRebuildStore(RebuildLeaseStore):
     async def acquire(self, record: RebuildRecord) -> bool:
         now = datetime.now(UTC)
         try:
+            lease_document = _document(record)
+            lease_document.pop("fencing_token", None)
             document = await cast(Any, self._lock_collection).find_one_and_update(
                 {
                     "_id": self._LOCK_ID,
@@ -40,7 +43,7 @@ class MongoRebuildStore(RebuildLeaseStore):
                         {"rebuild_id": {"$exists": False}},
                     ],
                 },
-                {"$set": _document(record)},
+                {"$set": lease_document, "$inc": {"fencing_token": 1}},
                 upsert=True,
                 return_document=ReturnDocument.AFTER,
             )
@@ -52,6 +55,9 @@ class MongoRebuildStore(RebuildLeaseStore):
             record.rebuild_id
         ):
             return False
+        token = document.get("fencing_token")
+        if isinstance(token, int):
+            record = record.model_copy(update={"fencing_token": token})
         try:
             await cast(Any, self._collection).replace_one(
                 {"rebuild_id": str(record.rebuild_id)}, _document(record), upsert=True
@@ -88,6 +94,15 @@ class MongoRebuildStore(RebuildLeaseStore):
         try:
             document = await cast(Any, self._collection).find_one(
                 {"_id": {"$ne": self._LOCK_ID}}, sort=[("started_at", -1)]
+            )
+        except PyMongoError:
+            raise RebuildStorageError("load_rebuild") from None
+        return _record(document) if document is not None else None
+
+    async def get(self, rebuild_id: UUID) -> RebuildRecord | None:
+        try:
+            document = await cast(Any, self._collection).find_one(
+                {"rebuild_id": str(rebuild_id), "_id": {"$ne": self._LOCK_ID}}
             )
         except PyMongoError:
             raise RebuildStorageError("load_rebuild") from None

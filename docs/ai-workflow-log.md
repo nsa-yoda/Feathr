@@ -177,6 +177,12 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision:** preserve the volatile local queue contract while making incomplete shutdown work explicit; keep search projection degradable and canonical persistence critical.
 - **Validation:** focused lifecycle/worker/settings suite passed 25 tests; Ruff and compile checks passed. Full service-backed integration remains environment-gated.
 
+### 2026-09-20 — Feature 028 rebuild convergence operations
+
+- **Task:** preserve rebuild cutover safety and durable status ownership.
+- **Contribution:** added bounded source/checkpoint/fencing fields, monotonic lease fencing, historical status lookup, runtime rebuild-store wiring, and an alias-swap cleanup barrier.
+- **Validation:** rebuild/lifecycle focused suite passed 16 tests; Ruff and strict mypy passed. Concurrent real-service cutover remains environment-gated.
+
 ### 2026-09-18 — Feature 009 review gate and merge preparation
 
 - **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.

@@ -41,7 +41,7 @@ async def rebuild_status(request: Request, rebuild_id: UUID | None = None) -> Re
             headers={"Retry-After": "1"},
         )
     try:
-        record = await store.latest()
+        record = await (store.get(rebuild_id) if rebuild_id is not None else store.latest())
     except RebuildStorageError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
