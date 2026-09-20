@@ -213,6 +213,12 @@ Consequences:
 
 Feature 010 implements this boundary in `src/event_platform/search/projection.py`, with the official async Elasticsearch adapter in `search/elasticsearch.py`, Mongo checkpoint persistence in `storage/checkpoints.py`, and an insert-only async source in `storage/change_stream.py`. The coordinator writes the stable alias and optional rebuild target before saving the resume token. It reports bounded state and lag values, retains the checkpoint across transient failures, and enters `reconciliation_required` for invalid resume history. Resume tokens and raw dependency details are never exposed in status or logs.
 
+Lifecycle delivery safety is explicit: shutdown stops queue admission before drain,
+workers renew active visibility during slow canonical persistence, and stale receipt
+operations become bounded ownership-loss outcomes. The supervisor leaves shared
+resources isolated when a cancellation-resistant task remains attached after the
+deadline, and emits drain duration and incomplete queue depth.
+
 On first deployment, the application creates the mapped `events-v000001`
 generation and attaches the configured stable alias when no generation exists.
 This bootstrap only initializes derived search state; Mongo remains canonical

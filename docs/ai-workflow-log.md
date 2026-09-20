@@ -169,6 +169,14 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Artifacts/code affected:** `specs/009-mongodb-analytics/`, `src/event_platform/api/routes/stats.py`, `src/event_platform/main.py`, `tests/unit/test_mongodb_analytics.py`, `tests/integration/test_mongodb_analytics_integration.py`, and documentation.
 - **Validation/review performed:** focused analytics tests pass 21/21; real Mongo integration is present and runs when `MONGO_URI` is configured; Ruff and strict mypy pass.
 
+### 2026-09-20 — Feature 027 lifecycle and delivery safety
+
+- **Tool/model:** Codex with Spec Kit workflow and Serena MCP repository searches.
+- **Task:** implement bounded shutdown, delivery ownership renewal, and explicit task policy from the ACR1 review.
+- **AI contribution:** added visibility heartbeats, safe stale-receipt classification, resource isolation for cancellation-resistant tasks, bounded lifecycle policy metadata, and regression tests.
+- **Human decision:** preserve the volatile local queue contract while making incomplete shutdown work explicit; keep search projection degradable and canonical persistence critical.
+- **Validation:** focused lifecycle/worker/settings suite passed 25 tests; Ruff and compile checks passed. Full service-backed integration remains environment-gated.
+
 ### 2026-09-18 — Feature 009 review gate and merge preparation
 
 - **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.

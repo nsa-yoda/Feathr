@@ -64,6 +64,12 @@ class FakeStore:
         return self.events.get(event_id)
 
 
+class SlowStore(FakeStore):
+    async def insert(self, value: CanonicalEvent) -> None:
+        await asyncio.sleep(0.025)
+        await super().insert(value)
+
+
 @pytest.mark.asyncio
 async def test_insert_ack_boundary_and_metrics() -> None:
     queue = InProcessQueue(capacity=1)
@@ -74,6 +80,19 @@ async def test_insert_ack_boundary_and_metrics() -> None:
     assert await worker.process_once()
     assert (await queue.stats()).depth == 0
     assert worker.metrics.inserted == 1
+
+
+@pytest.mark.asyncio
+async def test_slow_persistence_renews_visibility_without_worker_failure() -> None:
+    queue = InProcessQueue(capacity=1, visibility_timeout=0.006)
+    value = event()
+    await queue.send(value.model_dump(mode="json"), message_id=str(value.event_id))
+    stored = SlowStore()
+    worker = PersistenceWorker(queue, stored)  # type: ignore[arg-type]
+
+    assert await worker.process_once()
+    assert worker.metrics.visibility_renewals >= 1
+    assert worker.metrics.ownership_losses == 0
 
 
 @pytest.mark.asyncio

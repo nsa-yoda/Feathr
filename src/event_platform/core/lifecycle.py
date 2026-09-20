@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -11,8 +12,24 @@ from typing import Literal
 from event_platform.queue import InProcessQueue
 
 LifecycleState = Literal["starting", "running", "draining", "stopped", "failed"]
+TaskCriticality = Literal["critical", "restartable", "degradable"]
 TaskFactory = Callable[[asyncio.Event], Awaitable[None]]
 CloseCallback = Callable[[], Awaitable[None]]
+
+
+@dataclass(frozen=True, slots=True)
+class TaskPolicy:
+    """Explicit supervision policy metadata for a named background task."""
+
+    criticality: TaskCriticality = "critical"
+    restart_limit: int = 0
+    restart_backoff: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.restart_limit < 0 or self.restart_limit > 10:
+            raise ValueError("restart_limit must be between 0 and 10")
+        if self.restart_backoff < 0 or self.restart_backoff > 60:
+            raise ValueError("restart_backoff must be between 0 and 60")
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,10 +70,12 @@ class LifecycleSupervisor:
         self._logger = logger or logging.getLogger("event_platform.lifecycle")
         self._stop_event = asyncio.Event()
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._policies: dict[str, TaskPolicy] = {}
         self._state: LifecycleState = "starting"
         self._failure_type: str | None = None
         self._shutdown_complete = False
         self._shutdown_lock = asyncio.Lock()
+        self._unsafe_tasks: tuple[str, ...] = ()
 
     @property
     def stop_event(self) -> asyncio.Event:
@@ -77,7 +96,12 @@ class LifecycleSupervisor:
             raise RuntimeError("lifecycle is already shut down")
         self._resources.append((name, close))
 
-    async def start(self, factories: Mapping[str, TaskFactory] | None = None) -> None:
+    async def start(
+        self,
+        factories: Mapping[str, TaskFactory] | None = None,
+        *,
+        policies: Mapping[str, TaskPolicy] | None = None,
+    ) -> None:
         if self._state != "starting":
             raise RuntimeError("lifecycle can only start once")
         factory_items = tuple((factories or {}).items())
@@ -86,6 +110,10 @@ class LifecycleSupervisor:
             raise ValueError("task name is invalid")
         if len(names) != len(set(names)):
             raise ValueError("task name is duplicated")
+        configured_policies = dict(policies or {})
+        if any(name not in names for name in configured_policies):
+            raise ValueError("task policy has no registered task")
+        self._policies = {name: configured_policies.get(name, TaskPolicy()) for name in names}
         for name, factory in factory_items:
             self._tasks[name] = asyncio.create_task(
                 self._run_task(name, factory), name=f"event-platform:{name}"
@@ -93,7 +121,13 @@ class LifecycleSupervisor:
         self._state = "running"
         self._logger.info(
             "lifecycle running",
-            extra={"event": "lifecycle.running", "state": self._state},
+            extra={
+                "event": "lifecycle.running",
+                "state": self._state,
+                "task_policies": {
+                    name: policy.criticality for name, policy in self._policies.items()
+                },
+            },
         )
 
     def task_healthy(self, name: str) -> bool:
@@ -151,15 +185,21 @@ class LifecycleSupervisor:
     async def _shutdown(self) -> LifecycleSnapshot:
         if self._shutdown_complete:
             return await self._snapshot_with_queue()
+        drain_started = time.monotonic()
         await self.request_shutdown()
         task_values = tuple(self._tasks.values())
+        still_pending: set[asyncio.Task[None]] = set()
         if task_values:
             _, pending = await asyncio.wait(task_values, timeout=self.grace_period)
             self._observe_tasks(task_values)
             if pending:
                 self._logger.warning(
                     "lifecycle drain deadline exceeded",
-                    extra={"event": "lifecycle.drain_timeout", "state": self._state},
+                    extra={
+                        "event": "lifecycle.drain_timeout",
+                        "state": self._state,
+                        "drain_duration_seconds": round(time.monotonic() - drain_started, 3),
+                    },
                 )
                 for task in pending:
                     if not task.done():
@@ -178,6 +218,10 @@ class LifecycleSupervisor:
                             "task_count": len(still_pending),
                         },
                     )
+                    self._unsafe_tasks = tuple(
+                        sorted(name for name, task in self._tasks.items() if task in still_pending)
+                    )
+                    self._state = "failed"
         snapshot = await self._snapshot_with_queue()
         self._logger.info(
             "lifecycle queue depth before close",
@@ -185,9 +229,21 @@ class LifecycleSupervisor:
                 "event": "lifecycle.queue_depth",
                 "state": self._state,
                 "queue_depth": snapshot.queue_depth,
+                "drain_duration_seconds": round(time.monotonic() - drain_started, 3),
+                "incomplete_work": snapshot.queue_depth,
             },
         )
-        await self._close_resources()
+        if self._unsafe_tasks:
+            self._logger.error(
+                "lifecycle resources left open because tasks remain attached",
+                extra={
+                    "event": "lifecycle.resources_isolated",
+                    "state": self._state,
+                    "task_count": len(self._unsafe_tasks),
+                },
+            )
+        else:
+            await self._close_resources()
         if self._state != "failed":
             self._state = "stopped"
         self._shutdown_complete = True

@@ -69,6 +69,13 @@ class ServiceSettings(BaseSettings):
             raise ValueError(f"{info.field_name} cannot exceed {capacity_name}")
         return value
 
+    @field_validator("queue_visibility_timeout")
+    @classmethod
+    def validate_visibility_timeout(cls, value: float, info: ValidationInfo) -> float:
+        if info.data.get("env") == "production" and value <= 0:
+            raise ValueError("queue_visibility_timeout must be positive in production")
+        return value
+
     @field_validator("redis_url")
     @classmethod
     def validate_redis_url(cls, value: str | None) -> str | None:

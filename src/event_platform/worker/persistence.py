@@ -20,6 +20,7 @@ from event_platform.queue import (
     DLQReasonCode,
     InProcessQueue,
     QueueClosed,
+    ReceiptHandleError,
 )
 from event_platform.storage.mongo import (
     EventAlreadyExists,
@@ -38,6 +39,8 @@ class WorkerMetrics:
     processing_errors: int = 0
     retries: int = 0
     dlq: int = 0
+    visibility_renewals: int = 0
+    ownership_losses: int = 0
 
 
 ConflictDisposition = Callable[[Delivery, CanonicalEvent, CanonicalEvent], Awaitable[bool]]
@@ -143,6 +146,15 @@ class PersistenceWorker:
                 delivery, classification="permanent", reason_code="invalid_envelope"
             )
 
+        renewal_task = asyncio.create_task(self._renew_visibility(delivery))
+        try:
+            return await self._process_delivery(delivery, event)
+        finally:
+            renewal_task.cancel()
+            await asyncio.gather(renewal_task, return_exceptions=True)
+
+    async def _process_delivery(self, delivery: Delivery, event: CanonicalEvent) -> bool:
+
         try:
             await self._store.insert(event)
         except EventAlreadyExists:
@@ -165,7 +177,8 @@ class PersistenceWorker:
                     delivery, classification="transient", reason_code="mongo_dependency"
                 )
             if existing.payload_hash == event.payload_hash:
-                await self._queue.delete(delivery.message_id, delivery.receipt_handle)
+                if not await self._safe_delete(delivery):
+                    return False
                 self._metrics = _increment(self._metrics, "duplicates")
                 return True
             self._metrics = _increment(self._metrics, "conflicts")
@@ -178,7 +191,8 @@ class PersistenceWorker:
                         delivery, classification="unknown", reason_code="unknown_failure"
                     )
                 if accepted:
-                    await self._queue.delete(delivery.message_id, delivery.receipt_handle)
+                    if not await self._safe_delete(delivery):
+                        return False
                     return True
             return await self._dispose_failure(
                 delivery, classification="permanent", reason_code="event_conflict"
@@ -195,8 +209,61 @@ class PersistenceWorker:
                 delivery, classification=classification, reason_code=reason_code
             )
 
-        await self._queue.delete(delivery.message_id, delivery.receipt_handle)
+        if not await self._safe_delete(delivery):
+            return False
         self._metrics = _increment(self._metrics, "inserted")
+        return True
+
+    async def _renew_visibility(self, delivery: Delivery) -> None:
+        timeout = self._queue.visibility_timeout
+        if timeout <= 0:
+            return
+        interval = max(0.001, min(timeout / 3, 5.0))
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self._queue.change_visibility(
+                    delivery.message_id, delivery.receipt_handle, timeout
+                )
+            except ReceiptHandleError:
+                self._metrics = _increment(self._metrics, "ownership_losses")
+                logger.warning(
+                    "worker delivery ownership lost during visibility renewal",
+                    extra={
+                        "event": "worker.ownership_lost",
+                        "message_id": delivery.message_id,
+                        "attempt": delivery.receive_count,
+                    },
+                )
+                return
+            except (QueueClosed, asyncio.CancelledError):
+                return
+            else:
+                self._metrics = _increment(self._metrics, "visibility_renewals")
+                logger.debug(
+                    "worker delivery visibility renewed",
+                    extra={
+                        "event": "worker.visibility_renewed",
+                        "message_id": delivery.message_id,
+                    },
+                )
+
+    async def _safe_delete(self, delivery: Delivery) -> bool:
+        try:
+            await self._queue.delete(delivery.message_id, delivery.receipt_handle)
+        except ReceiptHandleError:
+            self._metrics = _increment(self._metrics, "ownership_losses")
+            logger.warning(
+                "worker delivery ownership lost before acknowledgement",
+                extra={
+                    "event": "worker.ownership_lost",
+                    "message_id": delivery.message_id,
+                    "attempt": delivery.receive_count,
+                },
+            )
+            return False
+        except QueueClosed:
+            return False
         return True
 
     async def _dispose_failure(
@@ -217,12 +284,24 @@ class PersistenceWorker:
             classification == "permanent"
             or delivery.receive_count >= self._retry_policy.max_receive_count
         ):
-            await self._queue.dead_letter(
-                delivery.message_id,
-                delivery.receipt_handle,
-                classification=classification,
-                reason_code=reason_code,
-            )
+            try:
+                await self._queue.dead_letter(
+                    delivery.message_id,
+                    delivery.receipt_handle,
+                    classification=classification,
+                    reason_code=reason_code,
+                )
+            except ReceiptHandleError:
+                self._metrics = _increment(self._metrics, "ownership_losses")
+                logger.warning(
+                    "worker delivery ownership lost before dead letter disposition",
+                    extra={
+                        "event": "worker.ownership_lost",
+                        "message_id": delivery.message_id,
+                        "attempt": delivery.receive_count,
+                    },
+                )
+                return False
             self._metrics = _increment(self._metrics, "dlq")
             logger.warning(
                 "worker delivery moved to dead letter queue",
@@ -298,6 +377,8 @@ def _increment(metrics: WorkerMetrics, field: str) -> WorkerMetrics:
         "processing_errors": metrics.processing_errors,
         "retries": metrics.retries,
         "dlq": metrics.dlq,
+        "visibility_renewals": metrics.visibility_renewals,
+        "ownership_losses": metrics.ownership_losses,
     }
     values[field] += 1
     return WorkerMetrics(**values)

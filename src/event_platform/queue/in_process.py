@@ -292,6 +292,12 @@ class InProcessQueue:
         return self._closed
 
     @property
+    def visibility_timeout(self) -> float:
+        """Configured delivery visibility interval for worker heartbeats."""
+
+        return self._visibility_timeout
+
+    @property
     def accepting(self) -> bool:
         """Whether new messages may be admitted."""
 

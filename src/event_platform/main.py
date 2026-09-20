@@ -27,7 +27,12 @@ from event_platform.api.routes.rebuild import router as rebuild_router
 from event_platform.api.routes.search import router as search_router
 from event_platform.api.routes.stats import router as stats_router
 from event_platform.cache.realtime import RedisCache
-from event_platform.core.lifecycle import CloseCallback, LifecycleSupervisor, TaskFactory
+from event_platform.core.lifecycle import (
+    CloseCallback,
+    LifecycleSupervisor,
+    TaskFactory,
+    TaskPolicy,
+)
 from event_platform.core.logging import configure_logging
 from event_platform.core.settings import ServiceSettings, SettingsStartupError, load_settings
 from event_platform.observability.health import HealthRegistry
@@ -361,7 +366,13 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                         app.state.persistence_worker_ready = False
 
                 task_factories.setdefault("persistence_worker", run_persistence_worker)
-            await supervisor.start(task_factories)
+            await supervisor.start(
+                task_factories,
+                policies={
+                    name: TaskPolicy("degradable") if name == "search_projector" else TaskPolicy()
+                    for name in task_factories
+                },
+            )
             app.state.metrics.inc("event_platform_lifecycle_events_total", {"outcome": "startup"})
         except Exception as error:
             if supervisor is not None:

@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from event_platform.core.lifecycle import LifecycleSupervisor
+from event_platform.core.lifecycle import LifecycleSupervisor, TaskPolicy
 from event_platform.queue import InProcessQueue, QueueClosed
 
 pytestmark = pytest.mark.unit
@@ -169,6 +169,34 @@ async def test_stop_accepting_wakes_a_sender_waiting_on_full_queue() -> None:
         await asyncio.wait_for(blocked, timeout=0.2)
 
 
+@pytest.mark.asyncio
+async def test_shutdown_does_not_close_resources_used_by_cancellation_resistant_task() -> None:
+    queue = InProcessQueue(capacity=2)
+    closed = False
+    release = asyncio.Event()
+
+    async def close() -> None:
+        nonlocal closed
+        closed = True
+
+    async def resistant(_: asyncio.Event) -> None:
+        while not release.is_set():
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                continue
+
+    supervisor = LifecycleSupervisor(queue, grace_period=0.001, resources=[("mongo", close)])
+    await supervisor.start({"persistence_worker": resistant})
+    snapshot = await supervisor.shutdown()
+
+    assert snapshot.state == "failed"
+    assert not closed
+    release.set()
+    supervisor._tasks["persistence_worker"].cancel()
+    await asyncio.gather(supervisor._tasks["persistence_worker"], return_exceptions=True)
+
+
 def test_snapshot_rejects_invalid_invariants() -> None:
     from event_platform.core.lifecycle import LifecycleSnapshot
 
@@ -176,3 +204,9 @@ def test_snapshot_rejects_invalid_invariants() -> None:
         LifecycleSnapshot("running", True, (), -1)
     with pytest.raises(ValueError, match="stopped"):
         LifecycleSnapshot("stopped", True, (), 0)
+
+
+def test_task_policy_is_bounded_and_explicit() -> None:
+    assert TaskPolicy("degradable", restart_limit=2, restart_backoff=1).criticality == "degradable"
+    with pytest.raises(ValueError):
+        TaskPolicy(restart_limit=11)

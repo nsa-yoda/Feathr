@@ -63,6 +63,18 @@ def test_production_requires_canonical_mongo() -> None:
 
 
 @pytest.mark.unit
+def test_production_rejects_zero_visibility_timeout() -> None:
+    from event_platform.core.settings import ServiceSettings
+
+    with pytest.raises(ValidationError, match="queue_visibility_timeout"):
+        ServiceSettings(
+            env="production",
+            mongo_url="mongodb://mongo:27017",
+            queue_visibility_timeout=0,
+        )
+
+
+@pytest.mark.unit
 def test_loaded_production_configuration_names_missing_mongo(
     monkeypatch: pytest.MonkeyPatch, tmp_path: object
 ) -> None:
