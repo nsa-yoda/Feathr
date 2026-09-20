@@ -63,6 +63,12 @@ resolution.
 
 The unit suite is the isolated semantic suite for settings, lifecycle, queue/worker state, query/search/analytics contracts, caching, rate limiting, request IDs, and problem responses. `make coverage` measures executed source lines and branches and writes `coverage/coverage.xml`; it is a signal, not proof of semantic completeness. Coverage does not replace integration tests against MongoDB, Elasticsearch, or Redis, failure-injection tests, browser checks, Compose smoke, or Postman review flows. The current HTTP contract is in [the foundation contract](specs/001-platform-foundation/contracts/http-foundation.md), and its manual check is in [the quickstart validation](specs/001-platform-foundation/quickstart.md).
 
+For a service-backed acceptance run, set `MONGO_URI`, `ELASTICSEARCH_URL`, and
+`REDIS_URL` and run `make test-integration-required`; that gate fails on missing
+endpoints or skipped cases. `make test-integration` remains the local
+dependency-optional selection. `make check-source-archive` checks tracked source
+files for cache/bytecode/platform debris and required project inputs.
+
 ## Reviewer quick start
 
 The finished repository must support a workflow no more complicated than:
@@ -118,6 +124,14 @@ lifespan performs the same verification before creating persistence or search
 projector tasks; it never mutates shared schema. Production startup rejects a
 missing canonical Mongo URL. Compose runs the bootstrap service after replica
 set initialization and waits for it to complete before starting the API.
+
+### Production security boundary
+
+Production requires a canonical Mongo URL, shared cursor signing key, and
+deployment-supplied `EVENT_PLATFORM_PRODUCTION_API_TOKEN`. Every route except
+`/health/live` requires a bearer token; production responses include HSTS. Keep
+tokens and cursor keys in the deployment secret manager, and terminate TLS plus
+tenant/role authorization at the trusted production edge.
 
 | Surface | URL/path | Ownership/behavior |
 |---|---|---|
