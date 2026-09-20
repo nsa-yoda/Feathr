@@ -80,8 +80,6 @@ def test_search_document_preserves_flattened_metadata_and_text() -> None:
         "metadata",
         "metadata_text",
         "schema_version",
-        "payload_hash",
-        "idempotency_key_hash",
     }
 
 

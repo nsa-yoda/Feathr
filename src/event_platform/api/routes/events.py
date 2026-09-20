@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from event_platform.api.problems import ProblemResponse
 from event_platform.domain.events import CanonicalEvent, EventInput
-from event_platform.queue import InProcessQueue, QueueFull
+from event_platform.queue import InProcessQueue, QueueClosed, QueueFull
 from event_platform.storage.idempotency import IdempotencyRegistryError
 
 router = APIRouter(tags=["events"])
@@ -66,6 +66,7 @@ async def ingest_event(
     canonical = CanonicalEvent.from_input(event, idempotency_key=idempotency_key)
     registry = getattr(request.app.state, "idempotency_registry", None)
     scope = str(getattr(request.state, "client_scope", "anonymous"))
+    reservation_token: str | None = None
     if idempotency_key is not None and registry is not None:
         try:
             decision = await registry.reserve(
@@ -95,6 +96,7 @@ async def ingest_event(
             raise HTTPException(status_code=409, detail="idempotency key conflicts with request")
         if decision.outcome == "in_flight":
             raise HTTPException(status_code=409, detail="idempotency request is already in flight")
+        reservation_token = decision.reservation_token
     queue: InProcessQueue = request.app.state.queue
     try:
         await queue.send(
@@ -102,7 +104,21 @@ async def ingest_event(
             message_id=str(canonical.event_id),
             operation_id=getattr(request.state, "operation_id", None),
         )
-    except QueueFull:
+    except (QueueFull, QueueClosed):
+        if idempotency_key is not None and registry is not None and reservation_token is not None:
+            try:
+                await registry.release(
+                    scope=scope,
+                    key=idempotency_key,
+                    operation="events.create",
+                    event_id=canonical.event_id,
+                    reservation_token=reservation_token,
+                )
+            except IdempotencyRegistryError:
+                logger.error(
+                    "idempotency reservation release failed after queue admission failure",
+                    extra={"event": "idempotency.release_failed", "outcome": "queue_rejected"},
+                )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="queue capacity is temporarily unavailable",
@@ -115,6 +131,7 @@ async def ingest_event(
                 key=idempotency_key,
                 operation="events.create",
                 event_id=canonical.event_id,
+                reservation_token=reservation_token,
             )
         except IdempotencyRegistryError:
             logger.warning(

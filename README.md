@@ -1,6 +1,6 @@
 # Distributed Event Processing Platform
 
-> **Current state:** Features 001-025 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, and executable Postman reviewer suite plus the reviewer operations UI. Static gates pass, and the clean Compose smoke plus the Newman collection pass on the local Colima Docker context; browser, online rebuild, and hosted CI evidence remain environment-specific gates. See `CODEX-HANDOFF.md` and the active Spec Kit artifacts.
+> **Current state:** Features 001-038 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, and executable Postman reviewer suite plus the reviewer operations UI. The ACR2 remediation keeps Mongo canonical, makes derived-service failure degradable, and adds fenced idempotency/projector ownership. Static gates pass locally; clean Compose smoke, browser, online rebuild, and hosted CI evidence remain environment-specific gates. See `CODEX-HANDOFF.md`, `AUTO_CODE_REVIEW_2.md`, and the active Spec Kit artifacts.
 
 A production-oriented event ingestion, processing, search, analytics, caching, and reviewer-demo platform built with FastAPI, MongoDB, Elasticsearch, Redis, and an assessment-mandated in-process SQS-style queue.
 
@@ -25,6 +25,11 @@ Open `http://127.0.0.1:8000/docs` for API discovery or request `http://127.0.0.1
 | `EVENT_PLATFORM_MONGO_COLLECTION` | `events` | Mongo collection name | Canonical event collection covered by the storage manifest. |
 
 An invalid foundation setting aborts startup before serving. The diagnostic names the field without printing its supplied value. Later feature settings will be documented as those integrations land.
+
+`EVENT_PLATFORM_RATE_LIMIT_MAX_DELAYED_REQUESTS` bounds the process-wide queue of
+requests waiting for a leaky-bucket slot. A request receives `429` only when that
+bounded admission gate (or the distributed bucket backlog) is full. Keep this value
+bounded per replica; Redis remains the cross-replica limiter.
 
 Run the foundation checks with:
 
@@ -61,7 +66,18 @@ and `uv run --locked python -m event_platform.cli search rebuild --confirm`.
 CI uses Python 3.12, a pinned uv release, and `uv.lock` with `--locked`
 resolution.
 
-The unit suite is the isolated semantic suite for settings, lifecycle, queue/worker state, query/search/analytics contracts, caching, rate limiting, request IDs, and problem responses. `make coverage` measures executed source lines and branches and writes `coverage/coverage.xml`; it is a signal, not proof of semantic completeness. Coverage does not replace integration tests against MongoDB, Elasticsearch, or Redis, failure-injection tests, browser checks, Compose smoke, or Postman review flows. The current HTTP contract is in [the foundation contract](specs/001-platform-foundation/contracts/http-foundation.md), and its manual check is in [the quickstart validation](specs/001-platform-foundation/quickstart.md).
+The unit suite is the isolated semantic suite for settings, lifecycle state machines,
+queue/worker acknowledgement boundaries, idempotency/projector races, query/search/
+analytics contracts, caching, rate limiting, request IDs, and problem responses.
+`make coverage` measures backend source lines and branches and writes
+`coverage/coverage.xml`; it is a guardrail, not proof of semantic completeness.
+Coverage does not replace integration tests against MongoDB, Elasticsearch, or Redis,
+failure-injection tests, browser checks, Compose smoke, or Postman review flows. The
+testing philosophy is to prove state transitions and failure dispositions at unit level,
+then run the same contracts through real dependencies when the environment supplies
+them. With more time, the next tests would exercise two live API replicas racing on
+Mongo leases/idempotency and a long-running bulk projector under lease loss.
+The current HTTP contract is in [the foundation contract](specs/001-platform-foundation/contracts/http-foundation.md), and its manual check is in [the quickstart validation](specs/001-platform-foundation/quickstart.md).
 
 For a service-backed acceptance run, set `MONGO_URI`, `ELASTICSEARCH_URL`, and
 `REDIS_URL` and run `make test-integration-required`; that gate fails on missing
@@ -108,6 +124,10 @@ its Compose network, Redis without a password, a 90-second Mongo init deadline,
 and bounded dependency/request limits. Set `REDIS_PASSWORD` together with a
 matching authenticated Redis URL when credentials are required.
 
+Compose also publishes Mongo, Elasticsearch, and Redis on host ports 27017,
+9200, and 6379 for local integration tests. Keep those bindings private or
+remove them in a production deployment.
+
 ### Mongo storage bootstrap
 
 Mongo schema ownership is explicit. Run the additive, idempotent bootstrap actor
@@ -119,7 +139,7 @@ uv run --locked python -m event_platform.cli storage verify
 ```
 
 `storage bootstrap` creates the versioned event, projection-checkpoint, rebuild,
-lease, and schema-state indexes. `storage verify` is read-only. Application
+projector-lease, idempotency, and schema-state indexes. `storage verify` is read-only. Application
 lifespan performs the same verification before creating persistence or search
 projector tasks; it never mutates shared schema. Production startup rejects a
 missing canonical Mongo URL. Compose runs the bootstrap service after replica
@@ -148,9 +168,10 @@ tenant/role authorization at the trusted production edge.
 
 MongoDB is canonical event state. Elasticsearch is an eventually consistent,
 rebuildable projection and Redis is disposable cache/rate-limit state. A `202`
-response confirms validated admission to the process-local queue; it is not
-durable across application-process failure. Queue delivery is at-least-once,
-and duplicate persistence is handled through immutable event IDs and hashes.
+response confirms validated admission to the process-local queue; normal graceful
+shutdown drains accepted work before closing the worker, but a process crash can still
+lose volatile queued messages, so that admission is not durable across application-process failure. Queue delivery is at-least-once, and duplicate
+persistence is handled through immutable event IDs and owner-fenced idempotency records.
 The local stack is intentionally single-process; production SQS is the scaling
 path described in `ARCHITECTURE.md` and `docs/operations/sqs-migration.md`.
 
@@ -173,7 +194,7 @@ Feature 025 reconciles the final architecture, traceability, and AI workflow doc
 
 ## AI in My Workflow
 
-This repository records AI collaboration in [`docs/ai-workflow-log.md`](docs/ai-workflow-log.md). Codex used the Spec Kit workflows to turn each ordered request into accepted specifications, plans, contracts, checklists, tasks, implementation changes, convergence notes, and review evidence. Serena MCP searches were used to trace existing route, lifecycle, storage, queue, projection, cache, Compose, and documentation ownership before proposing changes.
+This repository records AI collaboration in [`docs/ai-workflow-log.md`](docs/ai-workflow-log.md). ChatGPT running GPT-5.6 Sol and Codex used the Spec Kit workflows to turn each ordered request into accepted specifications, plans, contracts, checklists, tasks, implementation changes, convergence notes, and review evidence. Serena MCP searches were used to trace existing route, lifecycle, storage, queue, projection, cache, Compose, and documentation ownership before proposing changes.
 
 Concrete examples include mapping Mongo as canonical and Elasticsearch/Redis as derived state; adding bounded Compose startup and smoke checks; building the Postman suite around actual response/problem contracts; creating the reviewer UI against the existing nginx `/api/` boundary; and adding locked Make/CI commands with coverage artifacts. Review agents then challenged incorrect assumptions: the Postman suite stopped claiming repeated requests reuse the original event ID, polling gained request timeouts and reachable degraded paths, the UI added filters/cursors and preserved degraded dashboard state, and the rebuild demo became a truthful guarded command instead of a failing promise.
 

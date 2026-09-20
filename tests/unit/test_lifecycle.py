@@ -45,6 +45,57 @@ async def test_shutdown_stops_admission_before_draining_and_closes_in_order() ->
 
 
 @pytest.mark.asyncio
+async def test_drainable_worker_persists_accepted_queue_work_before_shutdown() -> None:
+    queue = InProcessQueue(capacity=4)
+    await queue.send({"event": "queued"})
+    processed: list[str] = []
+
+    async def worker(stop_event: asyncio.Event) -> None:
+        while not stop_event.is_set():
+            try:
+                delivery = await queue.receive(long_poll=0.01)
+            except TimeoutError:
+                continue
+            processed.append(str(delivery.body["event"]))
+            await queue.delete(delivery.message_id, delivery.receipt_handle)
+
+    supervisor = LifecycleSupervisor(queue, grace_period=0.2)
+    await supervisor.start(
+        {"persistence_worker": worker},
+        policies={"persistence_worker": TaskPolicy(drain_on_shutdown=True)},
+    )
+
+    snapshot = await supervisor.shutdown()
+
+    assert processed == ["queued"]
+    assert snapshot.state == "stopped"
+    assert snapshot.queue_depth == 0
+
+
+@pytest.mark.asyncio
+async def test_degradable_task_failure_does_not_stop_canonical_lifecycle() -> None:
+    queue = InProcessQueue(capacity=2)
+    supervisor = LifecycleSupervisor(queue)
+
+    async def projector(_: asyncio.Event) -> None:
+        raise OSError("elasticsearch unavailable")
+
+    await supervisor.start(
+        {"search_projector": projector},
+        policies={"search_projector": TaskPolicy("degradable")},
+    )
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert supervisor.state == "running"
+    assert supervisor.task_degraded("search_projector")
+    assert not supervisor.task_healthy("search_projector")
+    assert supervisor.all_tasks_healthy()
+    assert queue.accepting
+    await supervisor.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_unexpected_task_exit_marks_lifecycle_failed() -> None:
     queue = InProcessQueue(capacity=2)
     supervisor = LifecycleSupervisor(queue, grace_period=0.05)

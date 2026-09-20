@@ -55,6 +55,8 @@ class FakeClient:
                 "_source": {
                     **event.model_dump(mode="json"),
                     "metadata_text": metadata_text(event.metadata),
+                    "payload_hash": event.payload_hash,
+                    "idempotency_key_hash": event.idempotency_key_hash,
                 },
                 "sort": [event.timestamp.isoformat(), str(event.event_id)],
             }

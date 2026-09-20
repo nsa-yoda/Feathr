@@ -27,7 +27,9 @@ class MongoRebuildStore(RebuildLeaseStore):
         lock_collection: AsyncCollection[Mapping[str, object]] | None = None,
     ) -> None:
         self._collection = collection
-        self._lock_collection = lock_collection or collection
+        # AsyncCollection intentionally rejects truth-value testing; use an
+        # explicit None check while keeping the single-collection test adapter.
+        self._lock_collection = lock_collection if lock_collection is not None else collection
 
     async def acquire(self, record: RebuildRecord) -> bool:
         now = datetime.now(UTC)

@@ -16,7 +16,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from event_platform.domain.events import CanonicalEvent, PublicEvent
+from event_platform.domain.events import CanonicalEvent, EventInput, PublicEvent, payload_hash
 
 _CURSOR_KEY = secrets.token_bytes(32)
 _MAX_CURSOR_LENGTH = 512
@@ -229,7 +229,31 @@ class ElasticsearchSearchService:
                 # the canonical event contract. Remove only the known derived field and
                 # keep strict validation for every other unexpected response field.
                 canonical_source = dict(source)
-                canonical_source.pop("metadata_text", None)
+                # These fields were written by pre-ACR2 projectors. They are
+                # derived storage details and are no longer part of the
+                # public search document, but removing them here keeps an
+                # online deployment compatible while old generations drain.
+                for derived_field in (
+                    "metadata_text",
+                    "payload_hash",
+                    "idempotency_key_hash",
+                ):
+                    canonical_source.pop(derived_field, None)
+                # CanonicalEvent retains hashes for Mongo deduplication. The
+                # search projection intentionally omits them, so reconstruct
+                # the payload hash at the API boundary and never expose the
+                # idempotency hash from Elasticsearch.
+                canonical_input = EventInput.model_validate(
+                    {
+                        "event_type": canonical_source.get("event_type"),
+                        "timestamp": canonical_source.get("timestamp"),
+                        "user_id": canonical_source.get("user_id"),
+                        "source_url": canonical_source.get("source_url"),
+                        "metadata": canonical_source.get("metadata"),
+                    }
+                )
+                canonical_source["payload_hash"] = payload_hash(canonical_input)
+                canonical_source["idempotency_key_hash"] = None
                 events.append(CanonicalEvent.model_validate(canonical_source))
                 sort_values_by_hit.append(list(hit_sort))
             page_items = events[: query.limit]

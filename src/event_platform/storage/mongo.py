@@ -114,6 +114,7 @@ class IndexDefinition:
     name: str
     keys: tuple[tuple[str, int], ...]
     unique: bool = False
+    expire_after_seconds: int | None = None
 
 
 REQUIRED_INDEXES: tuple[IndexDefinition, ...] = (
@@ -141,7 +142,16 @@ def index_models() -> tuple[IndexModel, ...]:
     """Return fresh deterministic models for idempotent bootstrap calls."""
 
     return tuple(
-        IndexModel(list(index.keys), name=index.name, unique=index.unique)
+        IndexModel(
+            list(index.keys),
+            name=index.name,
+            unique=index.unique,
+            **(
+                {"expireAfterSeconds": index.expire_after_seconds}
+                if index.expire_after_seconds is not None
+                else {}
+            ),
+        )
         for index in REQUIRED_INDEXES
     )
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from elastic_transport import ApiError, TransportError
 from elasticsearch import AsyncElasticsearch
@@ -33,6 +33,48 @@ class ElasticsearchProjectionWriter:
             if isinstance(response_status, int) and response_status in {408, 429}:
                 raise ProjectionError("elasticsearch_unavailable", transient=True) from None
             if isinstance(response_status, int) and 400 <= response_status < 500:
+                raise ProjectionError("elasticsearch_rejected") from None
+            raise ProjectionError("elasticsearch_unavailable", transient=True) from None
+        except TransportError:
+            raise ProjectionError("elasticsearch_unavailable", transient=True) from None
+
+    async def bulk_write(
+        self,
+        documents: Sequence[tuple[str, Mapping[str, object]]],
+        *,
+        target_index: str | None = None,
+    ) -> None:
+        if not documents or len(documents) > 1_000:
+            raise ValueError("bulk projection documents are outside bounds")
+        operations: list[dict[str, object]] = []
+        for document_id, source in documents:
+            operations.extend(
+                [
+                    {"index": {"_index": self._alias, "_id": document_id}},
+                    dict(source),
+                ]
+            )
+        if target_index is not None:
+            for document_id, source in documents:
+                operations.extend(
+                    [
+                        {"index": {"_index": target_index, "_id": document_id}},
+                        dict(source),
+                    ]
+                )
+        try:
+            response = await self._client.bulk(operations=operations)
+            if bool(response.get("errors")):
+                raise ProjectionError("elasticsearch_unavailable", transient=True)
+        except ProjectionError:
+            raise
+        except ApiError as error:
+            response_status = getattr(getattr(error, "meta", None), "status", None)
+            if (
+                isinstance(response_status, int)
+                and 400 <= response_status < 500
+                and response_status != 429
+            ):
                 raise ProjectionError("elasticsearch_rejected") from None
             raise ProjectionError("elasticsearch_unavailable", transient=True) from None
         except TransportError:

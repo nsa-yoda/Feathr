@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 from uuid import uuid4
 
@@ -21,6 +22,8 @@ class ProductionAuthMiddleware:
             return
         settings = getattr(getattr(scope.get("app"), "state", None), "settings", None)
         if getattr(settings, "env", "local") != "production":
+            scope_state = scope.setdefault("state", {})
+            scope_state.setdefault("client_scope", "local-single-client")
             await self.app(scope, receive, send)
             return
         expected = getattr(settings, "production_api_token", None)
@@ -47,6 +50,9 @@ class ProductionAuthMiddleware:
             )
             await response(scope, receive, send)
             return
+        scope.setdefault("state", {})["client_scope"] = (
+            "token:" + hashlib.sha256(supplied.encode("utf-8")).hexdigest()[:24]
+        )
         await self.app(scope, receive, send)
 
 

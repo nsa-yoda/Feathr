@@ -87,6 +87,7 @@ _EXTRA_FIELDS = (
     "schema_version",
     "manifest_fingerprint",
     "verified_indexes",
+    "pending_tasks",
     "collection",
     "index",
 )

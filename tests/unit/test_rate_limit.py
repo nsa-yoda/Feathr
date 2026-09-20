@@ -77,6 +77,9 @@ def test_route_classification_uses_templates_and_exempts_health() -> None:
     assert classify_route(method="POST", path="/events") == RouteClass.INGESTION
     assert classify_route(method="GET", path="/query") == RouteClass.NORMAL_READ
     assert classify_route(method="GET", path="/search") == RouteClass.EXPENSIVE_READ
+    assert classify_route(method="GET", path="/events/search") == RouteClass.EXPENSIVE_READ
+    assert classify_route(method="GET", path="/events/stats") == RouteClass.EXPENSIVE_READ
+    assert classify_route(method="POST", path="/operations/search-rebuild") == RouteClass.OPS
     assert classify_route(method="GET", path="/ops/status") == RouteClass.OPS
     assert classify_route(method="GET", path="/health/live") is None
 

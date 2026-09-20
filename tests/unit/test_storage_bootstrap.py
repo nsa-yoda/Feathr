@@ -116,6 +116,8 @@ def test_manifest_is_stable_and_covers_only_observed_access_paths() -> None:
         "search_projection_checkpoints",
         "search_rebuilds",
         "search_rebuild_leases",
+        "event_idempotency",
+        "search_projection_leases",
         "storage_schema",
     }
     assert first.indexes["tenant_events"][0].name == "uq_events_event_id"
@@ -145,7 +147,7 @@ async def test_empty_storage_bootstrap_is_idempotent_and_verifiable() -> None:
 
     assert first == second == verified
     assert verified.schema_version == 1
-    assert verified.verified_indexes == 10
+    assert verified.verified_indexes == 13
     assert database["storage_schema"].write_count == state_writes
     assert database["storage_schema"].documents[SCHEMA_DOCUMENT_ID]["applied_at"] == clock()
 

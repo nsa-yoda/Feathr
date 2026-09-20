@@ -20,6 +20,8 @@ _wait_for_slot = asyncio.sleep
 class RateLimitMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
+        self._delay_slots: asyncio.BoundedSemaphore | None = None
+        self._delay_slot_limit: int | None = None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -74,7 +76,34 @@ class RateLimitMiddleware:
             )(scope, receive, send)
             return
         if decision is not None and decision.delay_seconds > 0:
-            await _wait_for_slot(decision.delay_seconds)
+            settings = getattr(getattr(app, "state", None), "settings", None)
+            configured_limit = int(getattr(settings, "rate_limit_max_delayed_requests", 1_024))
+            if self._delay_slots is None or self._delay_slot_limit != configured_limit:
+                self._delay_slots = asyncio.BoundedSemaphore(configured_limit)
+                self._delay_slot_limit = configured_limit
+            if self._delay_slots.locked():
+                body = ProblemResponse(
+                    title="Too Many Requests",
+                    status=429,
+                    detail="The bounded request admission backlog is full.",
+                    instance=_safe_instance(request.url.path),
+                    error_code="rate_limit_exceeded",
+                    request_id=UUID(request_id),
+                )
+                headers = _rate_headers(decision, denied=True)
+                headers["X-Request-ID"] = request_id
+                await JSONResponse(
+                    status_code=429,
+                    content=body.model_dump(mode="json"),
+                    media_type="application/problem+json",
+                    headers=headers,
+                )(scope, receive, send)
+                return
+            await self._delay_slots.acquire()
+            try:
+                await _wait_for_slot(decision.delay_seconds)
+            finally:
+                self._delay_slots.release()
 
         async def send_with_rate_headers(message: Message) -> None:
             if message["type"] == "http.response.start" and decision is not None:

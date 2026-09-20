@@ -56,7 +56,7 @@ Elasticsearch, and Redis lifecycle evidence.
 
 ## Coverage
 
-Use coverage reporting as a signal, not the sole acceptance metric. Critical queue/idempotency/retry/rate-limit modules should have especially high branch coverage. Run `make coverage` to execute the locked unit suite, print line and branch coverage, and write `coverage/coverage.xml`. The current socket-capable repository run passes 317 unit tests; the XML report measures 3,374 statements at 85% terminal combined coverage and 852 branches. This result is a snapshot of the isolated unit suite and does not replace semantic review, integration, failure, browser, Compose, or Postman evidence.
+Use coverage reporting as a signal, not the sole acceptance metric. Critical queue/idempotency/retry/rate-limit modules should have especially high branch coverage. Run `make coverage` to execute the locked unit suite, print line and branch coverage, and write `coverage/coverage.xml`. The ACR2 unit gate contains 388 tests and enforces a 90% terminal threshold. This result is a snapshot of the isolated unit suite and does not replace semantic review, integration, failure, browser, Compose, or Postman evidence.
 
 ## Integration lifecycle evidence
 

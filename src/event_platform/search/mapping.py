@@ -35,8 +35,6 @@ INDEX_MAPPING: dict[str, object] = {
             "metadata": {"type": "flattened"},
             "metadata_text": {"type": "text", "analyzer": "metadata_text_analyzer"},
             "schema_version": {"type": "integer"},
-            "payload_hash": {"type": "keyword"},
-            "idempotency_key_hash": {"type": "keyword"},
         },
     },
 }
@@ -95,6 +93,4 @@ def project_search_document(event: CanonicalEvent) -> dict[str, object]:
         "metadata": dict(event.metadata),
         "metadata_text": metadata_text(event.metadata),
         "schema_version": event.schema_version,
-        "payload_hash": event.payload_hash,
-        "idempotency_key_hash": event.idempotency_key_hash,
     }

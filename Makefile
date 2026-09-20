@@ -28,7 +28,7 @@ all: format-check lint typecheck test-unit test-integration test-failure
 
 coverage:
 	uv run --locked coverage run --branch --source=src/event_platform -m pytest -q tests/unit
-	uv run --locked coverage report --show-missing
+	uv run --locked coverage report --show-missing --fail-under=90
 	mkdir -p coverage
 	uv run --locked coverage xml -o coverage/coverage.xml
 

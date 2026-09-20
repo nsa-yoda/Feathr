@@ -5,6 +5,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, cast
+from uuid import uuid4
 
 from elasticsearch import AsyncElasticsearch
 from fastapi import FastAPI
@@ -58,6 +59,7 @@ from event_platform.storage.change_stream import MongoChangeStreamSource
 from event_platform.storage.checkpoints import MongoProjectionCheckpointStore
 from event_platform.storage.idempotency import InMemoryIdempotencyRegistry, MongoIdempotencyRegistry
 from event_platform.storage.mongo import MongoEventStore
+from event_platform.storage.projection_leases import MongoProjectionLeaseStore, ProjectionLeaseError
 from event_platform.storage.rebuilds import MongoRebuildStore
 from event_platform.worker.persistence import PersistenceWorker
 
@@ -354,6 +356,10 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 checkpoint = MongoProjectionCheckpointStore(
                     mongo_client[app.state.settings.mongo_database]["search_projection_checkpoints"]
                 )
+                lease_store = MongoProjectionLeaseStore(
+                    mongo_client[app.state.settings.mongo_database]["search_projection_leases"]
+                )
+                projector_owner = f"api-{uuid4().hex}"
                 search_projector = SearchProjector(
                     projector="events-search",
                     checkpoint=checkpoint,
@@ -361,18 +367,45 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                         elasticsearch_client,
                         alias=app.state.settings.elasticsearch_alias,
                     ),
+                    owner=projector_owner,
+                    generation=0,
                 )
                 source = MongoChangeStreamSource(event_collection)
                 app.state.search_projector = search_projector
 
                 async def run_search_projector(stop_event: asyncio.Event) -> None:
+                    lease = await lease_store.acquire(
+                        projector="events-search", owner=projector_owner
+                    )
+                    if lease is None:
+                        raise ProjectionLeaseError("projector_lease_unavailable")
+                    search_projector.set_ownership(owner=lease.owner, generation=lease.generation)
                     projection_task = asyncio.create_task(search_projector.run_source(source))
                     stop_wait = asyncio.create_task(stop_event.wait())
+                    lease_lost = asyncio.Event()
+
+                    async def renew_lease() -> None:
+                        nonlocal lease
+                        assert lease is not None
+                        while not stop_event.is_set():
+                            await asyncio.sleep(10.0)
+                            renewed = await lease_store.renew(lease)
+                            if renewed is None:
+                                lease_lost.set()
+                                search_projector.stop()
+                                return
+                            lease = renewed
+
+                    renewal_task = asyncio.create_task(renew_lease())
+                    lease_lost_wait = asyncio.create_task(lease_lost.wait())
                     try:
                         done, _ = await asyncio.wait(
-                            (projection_task, stop_wait),
+                            (projection_task, stop_wait, lease_lost_wait),
                             return_when=asyncio.FIRST_COMPLETED,
                         )
+                        if lease_lost.is_set() and not projection_task.done():
+                            projection_task.cancel()
+                            raise ProjectionLeaseError("projector_lease_lost")
                         if stop_wait in done and not projection_task.done():
                             search_projector.stop()
                             projection_task.cancel()
@@ -380,7 +413,14 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     finally:
                         if not stop_wait.done():
                             stop_wait.cancel()
+                        if not renewal_task.done():
+                            renewal_task.cancel()
+                        if not lease_lost_wait.done():
+                            lease_lost_wait.cancel()
+                        await lease_store.release(lease)
                         await asyncio.gather(stop_wait, return_exceptions=True)
+                        await asyncio.gather(renewal_task, return_exceptions=True)
+                        await asyncio.gather(lease_lost_wait, return_exceptions=True)
 
                 task_factories.setdefault("search_projector", run_search_projector)
             supervisor = LifecycleSupervisor(
@@ -409,7 +449,11 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             await supervisor.start(
                 task_factories,
                 policies={
-                    name: TaskPolicy("degradable") if name == "search_projector" else TaskPolicy()
+                    name: (
+                        TaskPolicy("degradable")
+                        if name == "search_projector"
+                        else TaskPolicy(drain_on_shutdown=name == "persistence_worker")
+                    )
                     for name in task_factories
                 },
             )

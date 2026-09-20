@@ -99,6 +99,7 @@ def test_exact_origin_cors_and_security_headers() -> None:
     assert allowed.headers["access-control-allow-origin"] == "https://ui.example.test"
     assert allowed.headers["access-control-allow-methods"] == "GET, POST, OPTIONS"
     assert "Content-Type" in allowed.headers["access-control-allow-headers"]
+    assert "Authorization" in allowed.headers["access-control-allow-headers"]
     assert "Idempotency-Key" in allowed.headers["access-control-allow-headers"]
     assert "access-control-allow-credentials" not in allowed.headers
     assert "access-control-allow-origin" not in denied.headers

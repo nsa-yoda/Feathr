@@ -27,6 +27,8 @@ class StorageCollections:
     checkpoints: str = "search_projection_checkpoints"
     rebuilds: str = "search_rebuilds"
     rebuild_leases: str = "search_rebuild_leases"
+    idempotency: str = "event_idempotency"
+    projection_leases: str = "search_projection_leases"
     schema: str = "storage_schema"
 
 
@@ -101,6 +103,15 @@ _REBUILD_INDEXES = (
     IndexDefinition("ix_search_rebuilds_started_at", (("started_at", DESCENDING),)),
 )
 _BUILTIN_ID_INDEX = (IndexDefinition("_id_", (("_id", ASCENDING),)),)
+_IDEMPOTENCY_INDEXES = (
+    _BUILTIN_ID_INDEX[0],
+    IndexDefinition(
+        "ttl_event_idempotency_created_at",
+        (("created_at", ASCENDING),),
+        expire_after_seconds=2_592_000,
+    ),
+)
+_PROJECTION_LEASE_INDEXES = _BUILTIN_ID_INDEX
 
 
 def storage_manifest(collections: StorageCollections | None = None) -> StorageManifest:
@@ -110,6 +121,8 @@ def storage_manifest(collections: StorageCollections | None = None) -> StorageMa
         names.checkpoints: _CHECKPOINT_INDEXES,
         names.rebuilds: _REBUILD_INDEXES,
         names.rebuild_leases: _BUILTIN_ID_INDEX,
+        names.idempotency: _IDEMPOTENCY_INDEXES,
+        names.projection_leases: _PROJECTION_LEASE_INDEXES,
         names.schema: _BUILTIN_ID_INDEX,
     }
     payload = {
@@ -123,6 +136,7 @@ def storage_manifest(collections: StorageCollections | None = None) -> StorageMa
                         "name": index.name,
                         "keys": list(index.keys),
                         "unique": index.unique,
+                        "expire_after_seconds": index.expire_after_seconds,
                     }
                     for index in definitions
                 ],
@@ -245,7 +259,17 @@ async def verify_storage(
 
 def _index_models(definitions: list[IndexDefinition]) -> list[IndexModel]:
     return [
-        IndexModel(list(index.keys), name=index.name, unique=index.unique) for index in definitions
+        IndexModel(
+            list(index.keys),
+            name=index.name,
+            unique=index.unique,
+            **(
+                {"expireAfterSeconds": index.expire_after_seconds}
+                if index.expire_after_seconds is not None
+                else {}
+            ),
+        )
+        for index in definitions
     ]
 
 
@@ -254,7 +278,14 @@ def _index_matches(document: Mapping[str, object], expected: IndexDefinition) ->
     if not isinstance(raw_keys, Mapping):
         return False
     keys = tuple((str(key), cast(int, direction)) for key, direction in raw_keys.items())
-    return keys == expected.keys and bool(document.get("unique", False)) is expected.unique
+    return (
+        keys == expected.keys
+        and bool(document.get("unique", False)) is expected.unique
+        and (
+            expected.expire_after_seconds is None
+            or document.get("expireAfterSeconds") == expected.expire_after_seconds
+        )
+    )
 
 
 def _utc(value: datetime) -> datetime:

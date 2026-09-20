@@ -151,6 +151,8 @@ class InProcessQueue:
             if not self._accepting:
                 raise QueueClosed("queue is draining and no longer accepts sends")
             identifier = message_id or str(uuid4())
+            if identifier in self._messages:
+                raise ValueError("message_id is already active")
             message = _Message(
                 identifier,
                 cast(Mapping[str, object], _freeze(body)),

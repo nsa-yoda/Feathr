@@ -68,12 +68,10 @@ class LocalLeakyBucket:
         )
 
     def _evict(self, now: float) -> None:
-        expired = [
-            key
-            for key, state in self._states.items()
-            if now - state.last_seen > self.idle_ttl_seconds
-        ]
-        for key in expired:
+        while self._states:
+            key, state = next(iter(self._states.items()))
+            if now - state.last_seen <= self.idle_ttl_seconds:
+                break
             self._states.pop(key, None)
         while len(self._states) > self.max_entries:
             self._states.popitem(last=False)

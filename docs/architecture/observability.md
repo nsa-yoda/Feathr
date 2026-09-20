@@ -8,7 +8,7 @@ Required event families include HTTP completion/errors, queue enqueue/receive/de
 
 ## Metrics
 
-At minimum:
+The production target is a metrics backend with:
 
 - HTTP request count/duration/status by route template;
 - ingestion accepted/rejected;
@@ -28,6 +28,12 @@ the HTTP, queue, worker, Mongo, Elasticsearch, Redis, rate-limit, and lifecycle
 families. The request middleware accepts only canonical UUID request IDs,
 generates operation IDs, records completion status, and emits JSON completion
 events with normalized route names.
+
+The interview implementation currently exposes bounded counters and health
+state through this registry. Latency histograms, queue lag gauges, and
+high-cardinality exemplars remain a deliberate production follow-up because
+they require selecting and operating a metrics backend; they are not silently
+represented as zero-valued counters.
 
 ## Health
 

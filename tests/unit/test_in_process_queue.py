@@ -140,6 +140,20 @@ async def test_targeted_dead_letter_preserves_safe_diagnostics_and_age() -> None
 
 
 @pytest.mark.asyncio
+async def test_send_rejects_active_duplicate_message_id_without_duplicate_ready_entry() -> None:
+    queue = InProcessQueue(capacity=2)
+    await queue.send({"value": 1}, message_id="stable-id")
+
+    with pytest.raises(ValueError, match="already active"):
+        await queue.send({"value": 2}, message_id="stable-id")
+
+    delivery = await queue.receive()
+    assert delivery.body["value"] == 1
+    with pytest.raises(TimeoutError):
+        await queue.receive()
+
+
+@pytest.mark.asyncio
 async def test_targeted_dead_letter_rejects_unsafe_diagnostic_values() -> None:
     queue = InProcessQueue(capacity=1)
     await queue.send({"value": "poison"}, message_id="poison-unsafe")

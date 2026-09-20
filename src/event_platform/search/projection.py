@@ -103,6 +103,13 @@ class ProjectionWriter(Protocol):
         target_index: str | None = None,
     ) -> None: ...
 
+    async def bulk_write(
+        self,
+        documents: Sequence[tuple[str, Mapping[str, object]]],
+        *,
+        target_index: str | None = None,
+    ) -> None: ...
+
 
 class ChangeStreamPort(Protocol):
     def stream(
@@ -223,6 +230,16 @@ class SearchProjector:
             raise ValueError("projection target index is invalid")
         self._target_index = target_index
 
+    def set_ownership(self, *, owner: str, generation: int) -> None:
+        """Set the lease owner before consuming the source stream."""
+
+        if self._current is not None or self._status.state not in {"starting", "stopped"}:
+            raise RuntimeError("projection ownership can only change before start")
+        if not owner or len(owner) > 128 or generation < 1:
+            raise ValueError("projection ownership is invalid")
+        self._owner = owner
+        self._generation = generation
+
     async def project_change(self, change: ChangeStreamEvent) -> ProjectionStatus:
         if self._stop_requested:
             raise ProjectionError("projector_stopped")
@@ -264,6 +281,27 @@ class SearchProjector:
 
         if len(changes) > 1_000:
             raise ValueError("projection batch is too large")
+        bulk_write = getattr(self._writer, "bulk_write", None)
+        if len(changes) > 1 and callable(bulk_write):
+            documents = [
+                (str(change.event.event_id), project_event(change.event)) for change in changes
+            ]
+            await bulk_write(documents, target_index=self._target_index)
+            for change in changes:
+                checkpoint = ProjectionCheckpoint(
+                    projector=self.projector,
+                    resume_token=dict(change.resume_token),
+                    state="running",
+                    updated_at=self._now(),
+                    last_projected_event_at=change.event.timestamp,
+                    owner=self._owner,
+                    generation=self._generation,
+                )
+                await self._checkpoint.save(checkpoint)
+                self._current = checkpoint
+                self._status = self._status_from_checkpoint(checkpoint)
+            self._emit("projector.bulk_success", state="running", batch_size=len(changes))
+            return self._status
         for change in changes:
             await self.project_change(change)
         return self._status
@@ -279,43 +317,64 @@ class SearchProjector:
     async def _consume(self, stream: AsyncIterator[ChangeStreamEvent]) -> ProjectionStatus:
         if self._status.state == "reconciliation_required":
             return self._status
+        pending_next: asyncio.Task[ChangeStreamEvent] | None = None
         try:
-            async for change in stream:
+            iterator = stream.__aiter__()
+            exhausted = False
+
+            async def next_change() -> ChangeStreamEvent:
+                return await iterator.__anext__()
+
+            while not exhausted and not self._stop_requested:
+                try:
+                    if pending_next is None:
+                        pending_next = asyncio.create_task(next_change())
+                    first = await pending_next
+                    pending_next = None
+                except StopAsyncIteration:
+                    break
+                changes = [first]
+                source_error: ProjectionError | None = None
+                bulk_enabled = callable(getattr(self._writer, "bulk_write", None))
+                while bulk_enabled and len(changes) < 100:
+                    try:
+                        if pending_next is None:
+                            pending_next = asyncio.create_task(next_change())
+                        changes.append(
+                            await asyncio.wait_for(asyncio.shield(pending_next), timeout=0.005)
+                        )
+                        pending_next = None
+                    except TimeoutError:
+                        break
+                    except StopAsyncIteration:
+                        pending_next = None
+                        exhausted = True
+                        break
+                    except ProjectionError as error:
+                        pending_next = None
+                        source_error = error
+                        break
                 if self._stop_requested:
                     break
                 try:
-                    await self.project_change(change)
+                    await self.project_batch(changes)
                 except ProjectionError as error:
-                    if not error.transient:
-                        self._status = ProjectionStatus(
-                            "degraded",
-                            self._status.checkpoint_present,
-                            self._status.last_success_at,
-                            self._status.last_projected_event_at,
-                            self._status.lag_seconds,
-                            error.code,
-                        )
-                        break
-                    recovered = False
-                    for attempt in range(1, self._retry_policy.max_attempts + 1):
+                    for change in changes:
                         try:
-                            await self.retry_change(change, attempt)
-                        except ProjectionError as retry_error:
-                            if not retry_error.transient:
-                                break
-                        else:
-                            recovered = True
+                            await self._project_with_retry(change, error)
+                        except ProjectionError as terminal:
+                            self._status = ProjectionStatus(
+                                "degraded",
+                                self._status.checkpoint_present,
+                                self._status.last_success_at,
+                                self._status.last_projected_event_at,
+                                self._status.lag_seconds,
+                                terminal.code,
+                            )
+                            exhausted = True
                             break
-                    if not recovered:
-                        self._status = ProjectionStatus(
-                            "degraded",
-                            self._status.checkpoint_present,
-                            self._status.last_success_at,
-                            self._status.last_projected_event_at,
-                            self._status.lag_seconds,
-                            "retry_exhausted",
-                        )
-                        break
+                if source_error is not None:
+                    raise source_error
         except InvalidResumeHistory:
             return self.mark_reconciliation_required()
         except ProjectionError as error:
@@ -328,7 +387,34 @@ class SearchProjector:
                 error.code,
             )
             self._emit("projector.failure", state="degraded", failure_code=error.code)
+        finally:
+            # A shielded look-ahead must not outlive the projector during
+            # shutdown; otherwise a Mongo change stream can keep the task
+            # tree alive past the lifecycle grace period.
+            if pending_next is not None and not pending_next.done():
+                pending_next.cancel()
+            # PyMongo may not observe cancellation until its socket timeout.
+            # Do not make application shutdown wait on that I/O task; consume
+            # its eventual result when it does finish to avoid warnings.
+            if pending_next is not None and pending_next.done():
+                try:
+                    pending_next.exception()
+                except asyncio.CancelledError:
+                    pass
         return self._status
+
+    async def _project_with_retry(
+        self, change: ChangeStreamEvent, initial_error: ProjectionError
+    ) -> ProjectionStatus:
+        if not initial_error.transient:
+            raise initial_error
+        for attempt in range(1, self._retry_policy.max_attempts + 1):
+            try:
+                return await self.retry_change(change, attempt)
+            except ProjectionError as retry_error:
+                if not retry_error.transient:
+                    break
+        raise ProjectionError("retry_exhausted")
 
     async def run_source(self, source: ChangeStreamPort) -> ProjectionStatus:
         """Resume from the stored token and consume a source's insert stream."""

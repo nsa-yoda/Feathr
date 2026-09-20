@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+from pymongo import AsyncMongoClient
 
+from event_platform.core.settings import SettingsStartupError, load_settings
 from event_platform.domain.events import CanonicalEvent
 from event_platform.search.mapping import (
     INDEX_MAPPING,
@@ -391,9 +394,60 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "run" and not args.confirm:
         raise SystemExit("refusing to run rebuild without --confirm")
     if args.command in {None, "status"}:
-        build_parser().print_help()
-        return 0
+        if args.command is None:
+            build_parser().print_help()
+            return 0
+        return asyncio.run(_status_command(args.rebuild_id))
     raise SystemExit("rebuild execution requires the application dependency harness")
+
+
+async def _status_command(rebuild_id: str | None) -> int:
+    """Print the latest durable status without requiring an application process."""
+
+    try:
+        settings = load_settings()
+    except SettingsStartupError:
+        logger.error(
+            "rebuild status configuration failed",
+            extra={"event": "search_rebuild.status_configuration_failed"},
+        )
+        return 2
+    if settings.mongo_url is None:
+        print(json.dumps({"status": "not_configured"}, sort_keys=True))
+        return 0
+    requested_id: UUID | None = None
+    if rebuild_id is not None:
+        try:
+            requested_id = UUID(rebuild_id)
+        except ValueError:
+            logger.error(
+                "rebuild status identifier is invalid",
+                extra={"event": "search_rebuild.status_input_invalid"},
+            )
+            return 2
+    from event_platform.storage.rebuilds import MongoRebuildStore
+
+    client: AsyncMongoClient[Any] = AsyncMongoClient(settings.mongo_url)
+    try:
+        database = client[settings.mongo_database]
+        store = MongoRebuildStore(database["search_rebuilds"], database["search_rebuild_leases"])
+        record = await store.get(requested_id) if requested_id else await store.latest()
+    except Exception as error:
+        logger.error(
+            "rebuild status lookup failed",
+            extra={
+                "event": "search_rebuild.status_lookup_failed",
+                "error_type": type(error).__name__,
+            },
+        )
+        return 1
+    finally:
+        await client.close()
+    if record is None:
+        print(json.dumps({"status": "not_found"}, sort_keys=True))
+        return 0
+    print(json.dumps(record.model_dump(mode="json"), sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":

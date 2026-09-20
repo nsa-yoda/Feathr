@@ -106,7 +106,6 @@ async def test_projection_is_deterministic_and_checkpoint_follows_all_writes() -
     assert first["event_id"] == str(event.event_id)
     assert first["metadata"] == {"campaign": "winter", "rank": 2}
     assert first["metadata_text"] == "campaign winter rank 2"
-    assert first["payload_hash"] == event.payload_hash
 
     calls: list[str] = []
     writer = FakeWriter(calls)
@@ -794,4 +793,28 @@ async def test_elasticsearch_writer_writes_alias_then_target_and_translates_outa
     with pytest.raises(ProjectionError, match="elasticsearch_unavailable"):
         await ElasticsearchProjectionWriter(DownClient(), alias="events-search").write(
             "event-1", {"event_id": "event-1"}
+        )  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_elasticsearch_writer_bulk_path_reports_partial_failures() -> None:
+    class BulkClient:
+        def __init__(self, errors: bool = False) -> None:
+            self.errors = errors
+            self.operations: list[object] = []
+
+        async def bulk(self, **kwargs: object) -> dict[str, object]:
+            self.operations = list(kwargs["operations"])  # type: ignore[arg-type]
+            return {"errors": self.errors}
+
+    client = BulkClient()
+    writer = ElasticsearchProjectionWriter(client, alias="events-search")  # type: ignore[arg-type]
+    await writer.bulk_write(
+        [("one", {"event_id": "one"}), ("two", {"event_id": "two"})],
+        target_index="events-v2",
+    )
+    assert len(client.operations) == 8
+    with pytest.raises(ProjectionError, match="elasticsearch_unavailable"):
+        await ElasticsearchProjectionWriter(BulkClient(True), alias="events-search").bulk_write(
+            [("one", {"event_id": "one"})]
         )  # type: ignore[arg-type]

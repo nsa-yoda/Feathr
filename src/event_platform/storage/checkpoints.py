@@ -85,7 +85,11 @@ class MongoProjectionCheckpointStore:
                 {
                     "projector": checkpoint.projector,
                     "$or": [
-                        {"generation": {"$lte": checkpoint.generation}},
+                        {"generation": {"$lt": checkpoint.generation}},
+                        {
+                            "generation": checkpoint.generation,
+                            "owner": checkpoint.owner,
+                        },
                         {"generation": {"$exists": False}},
                     ],
                 },

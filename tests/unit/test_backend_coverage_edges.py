@@ -873,6 +873,36 @@ class IdempotencyCollection:
         if isinstance(values, dict):
             self.document = {**(self.document or {}), **values}
 
+    async def find_one_and_update(
+        self,
+        query: Mapping[str, object],
+        update: Mapping[str, object],
+        **_kwargs: object,
+    ) -> dict[str, object] | None:
+        if self.update_error:
+            raise PyMongoError("update failed")
+        document = self.document
+        if document is None or any(document.get(key) != value for key, value in query.items()):
+            return None
+        values = update.get("$set")
+        if isinstance(values, dict):
+            document = {**document, **values}
+        increments = update.get("$inc")
+        if isinstance(increments, dict):
+            document = {
+                **document,
+                **{
+                    key: int(document.get(key, 0)) + int(value) for key, value in increments.items()
+                },
+            }
+        self.document = document
+        return document
+
+    async def delete_one(self, _query: Mapping[str, object]) -> None:
+        if self.update_error:
+            raise PyMongoError("delete failed")
+        self.document = None
+
 
 def idem_args(**overrides: object) -> dict[str, object]:
     values: dict[str, object] = {

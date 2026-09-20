@@ -82,14 +82,17 @@ FastAPI ───────── cache-aside ──────────�
 2. Middleware assigns or validates a request ID and enforces body-size/rate limits.
 3. Pydantic validates the event contract and normalizes timestamp/URL fields.
 4. The service assigns an immutable `event_id`; optional `Idempotency-Key` influences deterministic duplicate handling as specified in Feature 007.
-5. An envelope is offered to the bounded SQS-like in-process queue.
-6. If enqueue succeeds, API returns `202 Accepted` with `event_id`, `status=queued`, and request ID.
-7. If the queue is saturated beyond the configured enqueue timeout, API returns `503 Service Unavailable` with `Retry-After`.
-8. The persistence worker receives a message and a receipt handle. The message becomes invisible for the visibility timeout.
-9. The worker inserts the canonical event into MongoDB. Unique `event_id` provides idempotent redelivery behavior.
-10. Only after Mongo accepts the event (or an equivalent duplicate is verified) does the worker delete/ack the queue message.
-11. Retryable failures use bounded exponential backoff with jitter and adjusted visibility. Exhausted messages move to the simulated DLQ.
-12. Mongo's event Change Stream asynchronously projects inserts into Elasticsearch. ES success is intentionally outside the ingestion acknowledgement path.
+5. A scoped idempotency reservation uses an owner token and generation. Queue admission
+   failure releases only that owner; successful admission transitions the record to
+   `enqueued`, and stale takeover uses an atomic Mongo compare-and-set.
+6. An envelope is offered to the bounded SQS-like in-process queue.
+7. If enqueue succeeds, API returns `202 Accepted` with `event_id`, `status=queued`, and request ID.
+8. If the queue is saturated beyond the configured enqueue timeout, API returns `503 Service Unavailable` with `Retry-After` and releases the reservation.
+9. The persistence worker receives a message and a receipt handle. The message becomes invisible for the visibility timeout.
+10. The worker inserts the canonical event into MongoDB. Unique `event_id` provides idempotent redelivery behavior.
+11. Only after Mongo accepts the event (or an equivalent duplicate is verified) does the worker delete/ack the queue message.
+12. Retryable failures use bounded exponential backoff with jitter and adjusted visibility. Exhausted messages move to the simulated DLQ.
+13. Mongo's event Change Stream asynchronously projects inserts into Elasticsearch. ES success is intentionally outside the ingestion acknowledgement path.
 
 ### Meaning of `202 Accepted`
 
@@ -144,7 +147,9 @@ MongoDB owns the canonical event document. The minimum persisted shape is:
 
 The platform stores both producer event time (`timestamp`) and server acceptance/persistence time (`ingested_at`). They answer different questions and must not be conflated.
 
-MongoDB also stores small operational collections such as search projection checkpoints, rebuild metadata/leases, and optional idempotency records. These are operational control records; the events collection remains the business source of truth.
+MongoDB also stores small operational collections such as search projection checkpoints,
+projector leases, rebuild metadata/leases, and scoped idempotency records. These are
+operational control records; the events collection remains the business source of truth.
 
 Storage schema ownership is explicit. The `event_platform.cli storage bootstrap`
 command is the release-time mutation actor: it creates the additive versioned
@@ -166,8 +171,10 @@ Required baseline indexes:
 5. `{source_url: 1, timestamp: -1, event_id: -1}` — exact source URL + time queries;
 6. unique `projector` on `search_projection_checkpoints`;
 7. unique `rebuild_id` and descending `started_at` on `search_rebuilds`; and
-8. the built-in `_id_` access path for the fixed `search_rebuild_leases` and
-   `storage_schema` records.
+8. the built-in `_id_` access path for the fixed `search_rebuild_leases`,
+   `search_projection_leases`, and `storage_schema` records; and
+9. a bounded TTL index on `event_idempotency.created_at` so abandoned coordination
+   records cannot grow without bound.
 
 Do **not** index arbitrary metadata in MongoDB. Do **not** create every permutation of filter fields. Each additional index increases write amplification, memory/disk usage, and operational cost. When multiple optional filters are supplied, MongoDB can use the most selective supported index and apply residual predicates.
 
@@ -213,11 +220,12 @@ Consequences:
 
 Feature 010 implements this boundary in `src/event_platform/search/projection.py`, with the official async Elasticsearch adapter in `search/elasticsearch.py`, Mongo checkpoint persistence in `storage/checkpoints.py`, and an insert-only async source in `storage/change_stream.py`. The coordinator writes the stable alias and optional rebuild target before saving the resume token. It reports bounded state and lag values, retains the checkpoint across transient failures, and enters `reconciliation_required` for invalid resume history. Resume tokens and raw dependency details are never exposed in status or logs.
 
-Lifecycle delivery safety is explicit: shutdown stops queue admission before drain,
-workers renew active visibility during slow canonical persistence, and stale receipt
-operations become bounded ownership-loss outcomes. The supervisor leaves shared
-resources isolated when a cancellation-resistant task remains attached after the
-deadline, and emits drain duration and incomplete queue depth.
+Lifecycle delivery safety is explicit: shutdown stops queue admission first, leaves the
+drainable persistence worker running while accepted queue depth and in-flight work drain,
+then signals/cancels tasks at the grace deadline. It reports residual depth when the
+deadline is exceeded. Workers renew active visibility during slow canonical persistence,
+and stale receipt operations become bounded ownership-loss outcomes. The supervisor
+leaves shared resources isolated when a cancellation-resistant task remains attached.
 
 On first deployment, the application creates the mapped `events-v000001`
 generation and attaches the configured stable alias when no generation exists.
@@ -229,6 +237,20 @@ and later generation replacement remains owned by the online rebuild flow.
 The projector persists a Change Stream resume token/checkpoint **after** the corresponding ES write has succeeded. If the process crashes after ES indexing but before checkpoint persistence, the change may replay; indexing by immutable `event_id` makes that replay safe.
 
 If a resume token becomes invalid (for example after oplog history is no longer available), the system logs the condition and requires/initiates a full rebuild/reconciliation path rather than silently skipping data.
+
+Projector replicas acquire the Mongo-backed `search_projection_leases` lease before
+consuming. The lease carries an owner and monotonically increasing fencing generation;
+renewal and checkpoint writes are owner/generation constrained, so a stale replica
+cannot regress shared progress after takeover. Search writes use bounded Elasticsearch
+bulk operations where the adapter supports them, and checkpoints advance through the
+acknowledged batch in source order. Partial bulk failures retry idempotently by event ID.
+
+Projector replicas acquire the Mongo-backed `search_projection_leases` lease before
+consuming. The lease carries an owner and monotonically increasing fencing generation;
+renewal and checkpoint writes are owner/generation constrained, so a stale replica
+cannot regress shared progress after takeover. Search writes use bounded Elasticsearch
+bulk operations where the adapter supports them, and checkpoints advance through the
+acknowledged batch in source order. Partial bulk failures retry idempotently by event ID.
 
 ## 10. Elasticsearch mapping
 
@@ -310,11 +332,13 @@ At much higher write/read volume, evolve toward incremental counters or material
 
 ## 13. Mandatory rate limiting
 
-Externally exposed application routes use bounded admission control. The primary limiter is a Redis-backed atomic leaky bucket (Lua script or equivalent atomic operation). Keying is by normalized client identity (IP for this unauthenticated assessment) plus route class. Accepted requests reserve a release slot and wait asynchronously, smoothing bursts without dropping them.
+Externally exposed application routes use bounded admission control. The primary limiter is a Redis-backed atomic leaky bucket (Lua script or equivalent atomic operation). Keying is by the stable authenticated token-derived client scope in production, or normalized direct-peer identity in local mode, plus route class. Accepted requests reserve a release slot and wait asynchronously, smoothing bursts without dropping them.
 
 Redis failure does not disable protection. The application switches to a conservative process-local leaky bucket and emits degraded health/log/metric state.
 
-Return `429 Too Many Requests` with `Retry-After` and useful rate-limit headers only when the bounded reservation backlog is full. Health probes are exempt or separately protected to avoid defeating orchestration.
+Return `429 Too Many Requests` with `Retry-After` and useful rate-limit headers only when
+the bounded reservation backlog or the process-wide delayed-request gate is full. Health
+probes are exempt or separately protected to avoid defeating orchestration.
 
 The implementation lives in `src/event_platform/rate_limit/` with atomic Redis
 Lua leaky-bucket reservations, bounded monotonic local fallback, direct-peer identity by
@@ -329,13 +353,14 @@ The service must not trust `X-Forwarded-For` unless configured trusted proxy hop
 Feature 016 uses `src/event_platform/core/lifecycle.py` as the single owner of
 background tasks and dependency close callbacks. Startup creates only configured
 Mongo, Elasticsearch, and Redis clients; the persistence worker is started when
-the Mongo store is available. Shutdown first stops queue admission, signals
-managed workers/projectors, drains for the bounded grace period, cancels any
-remaining tasks, records in-memory queue depth, and then closes queue, Redis,
-Elasticsearch, and Mongo in that order. A task that exits unexpectedly moves the
-supervisor to `failed`, which keeps readiness unhealthy. The in-memory queue can
-still lose visible messages on process exit; the depth log makes that limitation
-explicit for operators.
+the Mongo store is available. Shutdown first stops queue admission, keeps the
+drainable persistence worker running until accepted work is empty or the bounded
+grace period expires, then signals managed workers/projectors and cancels any
+remaining tasks, records residual in-memory queue depth, and then closes queue, Redis,
+Elasticsearch, and Mongo in that order. Critical task failures move the supervisor to
+`failed`; a degradable projector failure records component degradation without closing
+canonical admission or readiness. The in-memory queue can still lose visible messages
+on process crash; the accepted-202 contract and depth log make that limitation explicit.
 
 ## 14. Failure modes
 

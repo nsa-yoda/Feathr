@@ -42,12 +42,14 @@ jobs:
       - run: uv sync --locked
       - run: make test-unit
       - run: make test-failure
-      - run: make test-integration
       - run: make check-source-archive
       - run: uv run --locked coverage run --branch --source=src/event_platform -m pytest -q tests/unit
-        continue-on-error: true
+      - run: uv run --locked coverage report --show-missing --fail-under=90
       - run: uv run --locked coverage xml -o coverage/coverage.xml
-        if: always()
+      - run: docker compose --env-file .env.example up --build -d
+      - run: MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' ELASTICSEARCH_URL='http://127.0.0.1:9200' REDIS_URL='redis://127.0.0.1:6379/0' make test-integration-required
+      - if: always()
+        run: docker compose --env-file .env.example down -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

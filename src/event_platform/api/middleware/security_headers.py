@@ -34,6 +34,8 @@ class ConfiguredCORSMiddleware:
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
+        self._cors: CORSMiddleware | None = None
+        self._origin: str | None = None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -41,19 +43,27 @@ class ConfiguredCORSMiddleware:
             return
         settings = getattr(getattr(scope.get("app"), "state", None), "settings", None)
         origin = getattr(settings, "cors_allowed_origin", None)
-        cors = CORSMiddleware(
-            self.app,
-            allow_origins=[origin] if origin else [],
-            allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Content-Type", "X-Request-ID", "Idempotency-Key"],
-            expose_headers=[
-                "X-Request-ID",
-                "X-Operation-ID",
-                "RateLimit-Limit",
-                "RateLimit-Remaining",
-                "RateLimit-Reset",
-                "X-Cache",
-            ],
-            allow_credentials=False,
-        )
-        await cors(scope, receive, send)
+        if self._cors is None or self._origin != origin:
+            self._origin = origin
+            self._cors = CORSMiddleware(
+                self.app,
+                allow_origins=[origin] if origin else [],
+                allow_methods=["GET", "POST", "OPTIONS"],
+                allow_headers=[
+                    "Content-Type",
+                    "Authorization",
+                    "X-Request-ID",
+                    "Idempotency-Key",
+                ],
+                expose_headers=[
+                    "X-Request-ID",
+                    "X-Operation-ID",
+                    "RateLimit-Limit",
+                    "RateLimit-Remaining",
+                    "RateLimit-Reset",
+                    "X-Cache",
+                ],
+                allow_credentials=False,
+            )
+        assert self._cors is not None
+        await self._cors(scope, receive, send)

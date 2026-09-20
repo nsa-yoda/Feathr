@@ -24,6 +24,7 @@ class TaskPolicy:
     criticality: TaskCriticality = "critical"
     restart_limit: int = 0
     restart_backoff: float = 0.0
+    drain_on_shutdown: bool = False
 
     def __post_init__(self) -> None:
         if self.restart_limit < 0 or self.restart_limit > 10:
@@ -70,7 +71,9 @@ class LifecycleSupervisor:
         self._logger = logger or logging.getLogger("event_platform.lifecycle")
         self._stop_event = asyncio.Event()
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._task_stop_events: dict[str, asyncio.Event] = {}
         self._policies: dict[str, TaskPolicy] = {}
+        self._degraded_tasks: dict[str, str] = {}
         self._state: LifecycleState = "starting"
         self._failure_type: str | None = None
         self._shutdown_complete = False
@@ -115,8 +118,10 @@ class LifecycleSupervisor:
             raise ValueError("task policy has no registered task")
         self._policies = {name: configured_policies.get(name, TaskPolicy()) for name in names}
         for name, factory in factory_items:
+            self._task_stop_events[name] = asyncio.Event()
             self._tasks[name] = asyncio.create_task(
-                self._run_task(name, factory), name=f"event-platform:{name}"
+                self._run_task(name, factory, self._task_stop_events[name]),
+                name=f"event-platform:{name}",
             )
         self._state = "running"
         self._logger.info(
@@ -132,15 +137,29 @@ class LifecycleSupervisor:
 
     def task_healthy(self, name: str) -> bool:
         task = self._tasks.get(name)
-        return self._state == "running" and task is not None and not task.done()
+        return (
+            self._state == "running"
+            and task is not None
+            and not task.done()
+            and name not in self._degraded_tasks
+        )
+
+    def task_degraded(self, name: str) -> bool:
+        """Whether a degradable task stopped without failing canonical service."""
+
+        return name in self._degraded_tasks
 
     def has_task(self, name: str) -> bool:
         return name in self._tasks
 
     def all_tasks_healthy(self) -> bool:
-        """Return false when any supervised task has terminated unexpectedly."""
+        """Return false when a critical task has terminated unexpectedly."""
 
-        return self._state == "running" and all(not task.done() for task in self._tasks.values())
+        return self._state == "running" and all(
+            policy.criticality == "degradable"
+            or (not self._tasks[name].done() and name not in self._degraded_tasks)
+            for name, policy in self._policies.items()
+        )
 
     def snapshot(self, *, queue_depth: int = 0) -> LifecycleSnapshot:
         active = tuple(sorted(name for name, task in self._tasks.items() if not task.done()))
@@ -169,6 +188,9 @@ class LifecycleSupervisor:
         if self._state != "failed":
             self._state = "draining"
         self._stop_event.set()
+        for name, policy in self._policies.items():
+            if not policy.drain_on_shutdown:
+                self._task_stop_events[name].set()
         self._logger.info(
             "lifecycle draining",
             extra={
@@ -190,7 +212,25 @@ class LifecycleSupervisor:
         task_values = tuple(self._tasks.values())
         still_pending: set[asyncio.Task[None]] = set()
         if task_values:
-            _, pending = await asyncio.wait(task_values, timeout=self.grace_period)
+            deadline = time.monotonic() + self.grace_period
+            pending = set(task_values)
+            while pending and time.monotonic() < deadline:
+                stats = await self.queue.stats()
+                if stats.depth == 0:
+                    self._signal_drain_tasks()
+                remaining = max(0.0, deadline - time.monotonic())
+                if remaining <= 0:
+                    break
+                _, pending = await asyncio.wait(
+                    pending,
+                    timeout=min(0.02, remaining),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if pending and await self._queue_is_drained():
+                    self._signal_drain_tasks()
+            self._signal_drain_tasks()
+            if pending:
+                _, pending = await asyncio.wait(pending, timeout=0.05)
             self._observe_tasks(task_values)
             if pending:
                 self._logger.warning(
@@ -199,6 +239,11 @@ class LifecycleSupervisor:
                         "event": "lifecycle.drain_timeout",
                         "state": self._state,
                         "drain_duration_seconds": round(time.monotonic() - drain_started, 3),
+                        "pending_tasks": tuple(
+                            sorted(
+                                name for name, task in self._tasks.items() if task in pending
+                            )
+                        ),
                     },
                 )
                 for task in pending:
@@ -280,22 +325,55 @@ class LifecycleSupervisor:
                     },
                 )
 
-    async def _run_task(self, name: str, factory: TaskFactory) -> None:
-        try:
-            await factory(self._stop_event)
-            if not self._stop_event.is_set():
-                error = RuntimeError("supervised task exited unexpectedly")
-                await self._mark_failed(name, error)
-                raise error
-        except asyncio.CancelledError:
-            if self._stop_event.is_set():
-                raise
-            error = RuntimeError("supervised task cancelled unexpectedly")
+    async def _run_task(
+        self, name: str, factory: TaskFactory, task_stop_event: asyncio.Event
+    ) -> None:
+        policy = self._policies[name]
+        attempts = 0
+        while True:
+            try:
+                await factory(task_stop_event)
+                if task_stop_event.is_set() or self._state in {"draining", "stopped"}:
+                    return
+                error: BaseException = RuntimeError("supervised task exited unexpectedly")
+            except asyncio.CancelledError:
+                if task_stop_event.is_set() or self._state in {"draining", "stopped"}:
+                    return
+                error = RuntimeError("supervised task cancelled unexpectedly")
+            except Exception as caught:
+                error = caught
+
+            if policy.criticality == "degradable":
+                self._degraded_tasks[name] = type(error).__name__
+                self._logger.error(
+                    "degradable lifecycle task stopped",
+                    extra={
+                        "event": "lifecycle.degraded_task",
+                        "task": name,
+                        "error_type": type(error).__name__,
+                        "state": self._state,
+                    },
+                )
+                return
+            if (
+                policy.criticality == "restartable"
+                and attempts < policy.restart_limit
+                and not task_stop_event.is_set()
+            ):
+                attempts += 1
+                if policy.restart_backoff:
+                    await asyncio.sleep(policy.restart_backoff)
+                continue
             await self._mark_failed(name, error)
-            raise error from None
-        except Exception as error:
-            await self._mark_failed(name, error)
-            raise
+            raise error
+
+    def _signal_drain_tasks(self) -> None:
+        for name, policy in self._policies.items():
+            if policy.drain_on_shutdown:
+                self._task_stop_events[name].set()
+
+    async def _queue_is_drained(self) -> bool:
+        return (await self.queue.stats()).depth == 0
 
     async def _mark_failed(self, name: str, error: BaseException) -> None:
         self._state = "failed"

@@ -322,6 +322,18 @@ class FakeMongoCollection:
         return self.document
 
 
+class NoBoolCollection(FakeMongoCollection):
+    def __bool__(self) -> bool:
+        raise AssertionError("Async Mongo collections must not be truth-tested")
+
+
+def test_mongo_rebuild_store_uses_explicit_none_for_optional_lock_collection() -> None:
+    state = FakeMongoCollection()
+    lock = NoBoolCollection()
+    store = MongoRebuildStore(state, lock)  # type: ignore[arg-type]
+    assert store._lock_collection is lock  # type: ignore[attr-defined]
+
+
 @pytest.mark.asyncio
 async def test_mongo_rebuild_store_acquires_expired_lease_and_round_trips_status() -> None:
     collection = FakeMongoCollection()
