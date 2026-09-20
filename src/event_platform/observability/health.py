@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
@@ -47,9 +48,19 @@ class HealthRegistry:
 
     _NAMES = ("mongo", "elasticsearch", "redis", "queue", "persistence_worker", "search_projector")
 
-    def __init__(self, metrics: MetricsRegistry | None = None) -> None:
+    def __init__(
+        self,
+        metrics: MetricsRegistry | None = None,
+        *,
+        probe_timeout: float = 0.5,
+        overall_timeout: float = 1.0,
+    ) -> None:
+        if probe_timeout <= 0 or overall_timeout <= 0:
+            raise ValueError("health probe deadlines must be positive")
         self._probes: dict[str, Probe] = {}
         self._metrics = metrics
+        self._probe_timeout = probe_timeout
+        self._overall_timeout = overall_timeout
 
     def set_probe(self, name: str, probe: Probe) -> None:
         if name not in self._NAMES:
@@ -57,36 +68,47 @@ class HealthRegistry:
         self._probes[name] = probe
 
     async def snapshot(self) -> HealthSnapshot:
-        results: dict[str, ComponentHealth] = {}
-        for name in self._NAMES:
-            probe = self._probes.get(name)
-            if probe is None:
-                results[name] = ComponentHealth(state="degraded", detail="not_configured")
-                continue
-            try:
-                value = probe()
-                if inspect.isawaitable(value):
-                    value = await value
-                results[name] = _coerce(value)
-                self._record_metric(name, results[name].state)
-            except Exception as error:
-                logger.warning(
-                    "health probe failed",
-                    extra={
-                        "event": "health.probe_failed",
-                        "component": name,
-                        "error_type": type(error).__name__,
-                        "state": "unhealthy",
-                    },
-                )
-                results[name] = ComponentHealth(state="unhealthy", detail="probe_failed")
-                self._record_metric(name, "unhealthy")
+        async def collect() -> dict[str, ComponentHealth]:
+            values = await asyncio.gather(*(self._probe(name) for name in self._NAMES))
+            return dict(zip(self._NAMES, values, strict=True))
+
+        try:
+            results = await asyncio.wait_for(collect(), timeout=self._overall_timeout)
+        except TimeoutError:
+            results = {
+                name: ComponentHealth(state="unhealthy", detail="probe_failed")
+                for name in self._NAMES
+            }
         status: ComponentState = "healthy"
         if any(item.state == "unhealthy" for item in results.values()):
             status = "unhealthy"
         elif any(item.state == "degraded" for item in results.values()):
             status = "degraded"
         return HealthSnapshot(status=status, components=HealthComponents(**results))
+
+    async def _probe(self, name: str) -> ComponentHealth:
+        probe = self._probes.get(name)
+        if probe is None:
+            return ComponentHealth(state="degraded", detail="not_configured")
+        try:
+            value = probe()
+            if inspect.isawaitable(value):
+                value = await asyncio.wait_for(value, timeout=self._probe_timeout)
+            result = _coerce(value)
+            self._record_metric(name, result.state)
+            return result
+        except Exception as error:
+            logger.warning(
+                "health probe failed",
+                extra={
+                    "event": "health.probe_failed",
+                    "component": name,
+                    "error_type": type(error).__name__,
+                    "state": "unhealthy",
+                },
+            )
+            self._record_metric(name, "unhealthy")
+            return ComponentHealth(state="unhealthy", detail="probe_failed")
 
     def _record_metric(self, name: str, state: ComponentState) -> None:
         if self._metrics is None:

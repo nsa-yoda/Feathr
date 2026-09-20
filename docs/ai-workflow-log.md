@@ -213,6 +213,12 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Contribution:** shielded shared refresh tasks while preserving bounded raw aggregation, versioned cache validation, TTL, and degraded Redis bypass.
 - **Validation:** realtime analytics suite passed 19 tests; Ruff and strict mypy passed. Rollup workload and cross-replica evidence remain environment-gated.
 
+### 2026-09-20 — Feature 034 route observability consistency
+
+- **Task:** bound readiness latency and preserve safe route observability.
+- **Contribution:** changed health probes to concurrent per-probe/overall deadlines while keeping liveness dependency-free and metric labels bounded.
+- **Validation:** health/observability suite passed 6 tests; Ruff and strict mypy passed.
+
 ### 2026-09-18 — Feature 009 review gate and merge preparation
 
 - **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.

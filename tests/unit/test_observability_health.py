@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from event_platform.main import create_app
+from event_platform.observability.health import HealthRegistry
 from event_platform.observability.metrics import MetricsRegistry
 
 pytestmark = pytest.mark.unit
@@ -70,3 +71,24 @@ def test_metrics_registry_rejects_unknown_families_and_normalizes_methods() -> N
         registry.inc("custom_metric", {"outcome": "success"})  # type: ignore[arg-type]
     registry.observe_http(method="TRACE", path="/health/live", status=200)
     assert 'method="OTHER"' in registry.render()
+
+
+@pytest.mark.asyncio
+async def test_health_probes_run_concurrently_and_obey_deadline() -> None:
+    import asyncio
+
+    registry = HealthRegistry(probe_timeout=0.01, overall_timeout=0.03)
+    started = 0
+
+    async def slow() -> bool:
+        nonlocal started
+        started += 1
+        await asyncio.sleep(0.05)
+        return True
+
+    registry.set_probe("mongo", slow)
+    registry.set_probe("redis", slow)
+    snapshot = await registry.snapshot()
+    assert started == 2
+    assert snapshot.components.mongo.detail == "probe_failed"
+    assert snapshot.components.redis.detail == "probe_failed"
