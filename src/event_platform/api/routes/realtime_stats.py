@@ -65,6 +65,7 @@ async def realtime_stats(
             cache=getattr(request.app.state, "realtime_cache", None),
             ttl_seconds=getattr(settings, "realtime_cache_ttl_seconds", 10),
             max_event_types=getattr(settings, "realtime_max_event_types", 1_000),
+            metrics=getattr(request.app.state, "metrics", None),
         )
         request.app.state.realtime_stats_service = service
     try:

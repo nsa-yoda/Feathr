@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from math import isfinite
@@ -14,6 +15,7 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from event_platform.domain.events import CanonicalEvent
+from event_platform.observability.metrics import MetricsRegistry
 from event_platform.queue import (
     Delivery,
     DLQClassification,
@@ -116,6 +118,7 @@ class PersistenceWorker:
         concurrency: int = 1,
         on_conflict: ConflictDisposition | None = None,
         retry_policy: RetryPolicy | None = None,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         if concurrency < 1:
             raise ValueError("concurrency must be positive")
@@ -125,6 +128,7 @@ class PersistenceWorker:
         self._on_conflict = on_conflict
         self._retry_policy = retry_policy or RetryPolicy()
         self._metrics = WorkerMetrics()
+        self._metrics_registry = metrics
 
     @property
     def metrics(self) -> WorkerMetrics:
@@ -138,20 +142,24 @@ class PersistenceWorker:
         except QueueClosed:
             return False
 
+        started_at = time.perf_counter()
         try:
-            event = CanonicalEvent.model_validate(delivery.body)
-        except ValidationError:
-            self._metrics = _increment(self._metrics, "decode_failures")
-            return await self._dispose_failure(
-                delivery, classification="permanent", reason_code="invalid_envelope"
-            )
+            try:
+                event = CanonicalEvent.model_validate(delivery.body)
+            except ValidationError:
+                self._increment_metric("decode_failures")
+                return await self._dispose_failure(
+                    delivery, classification="permanent", reason_code="invalid_envelope"
+                )
 
-        renewal_task = asyncio.create_task(self._renew_visibility(delivery))
-        try:
-            return await self._process_delivery(delivery, event)
+            renewal_task = asyncio.create_task(self._renew_visibility(delivery))
+            try:
+                return await self._process_delivery(delivery, event)
+            finally:
+                renewal_task.cancel()
+                await asyncio.gather(renewal_task, return_exceptions=True)
         finally:
-            renewal_task.cancel()
-            await asyncio.gather(renewal_task, return_exceptions=True)
+            self._record_processing_latency(started_at)
 
     async def _process_delivery(self, delivery: Delivery, event: CanonicalEvent) -> bool:
 
@@ -161,32 +169,32 @@ class PersistenceWorker:
             try:
                 existing = await self._store.get_by_id(event.event_id)
             except MongoDependencyError:
-                self._metrics = _increment(self._metrics, "processing_errors")
+                self._increment_metric("processing_errors")
                 return await self._dispose_failure(
                     delivery, classification="transient", reason_code="mongo_dependency"
                 )
             except Exception as error:
-                self._metrics = _increment(self._metrics, "processing_errors")
+                self._increment_metric("processing_errors")
                 classification, reason_code = classify_failure(error)
                 return await self._dispose_failure(
                     delivery, classification=classification, reason_code=reason_code
                 )
             if existing is None:
-                self._metrics = _increment(self._metrics, "processing_errors")
+                self._increment_metric("processing_errors")
                 return await self._dispose_failure(
                     delivery, classification="transient", reason_code="mongo_dependency"
                 )
             if existing.payload_hash == event.payload_hash:
                 if not await self._safe_delete(delivery):
                     return False
-                self._metrics = _increment(self._metrics, "duplicates")
+                self._increment_metric("duplicates")
                 return True
-            self._metrics = _increment(self._metrics, "conflicts")
+            self._increment_metric("conflicts")
             if self._on_conflict is not None:
                 try:
                     accepted = await self._on_conflict(delivery, event, existing)
                 except Exception:
-                    self._metrics = _increment(self._metrics, "processing_errors")
+                    self._increment_metric("processing_errors")
                     return await self._dispose_failure(
                         delivery, classification="unknown", reason_code="unknown_failure"
                     )
@@ -198,12 +206,12 @@ class PersistenceWorker:
                 delivery, classification="permanent", reason_code="event_conflict"
             )
         except MongoDependencyError:
-            self._metrics = _increment(self._metrics, "processing_errors")
+            self._increment_metric("processing_errors")
             return await self._dispose_failure(
                 delivery, classification="transient", reason_code="mongo_dependency"
             )
         except Exception as error:
-            self._metrics = _increment(self._metrics, "processing_errors")
+            self._increment_metric("processing_errors")
             classification, reason_code = classify_failure(error)
             return await self._dispose_failure(
                 delivery, classification=classification, reason_code=reason_code
@@ -211,7 +219,7 @@ class PersistenceWorker:
 
         if not await self._safe_delete(delivery):
             return False
-        self._metrics = _increment(self._metrics, "inserted")
+        self._increment_metric("inserted")
         return True
 
     async def _renew_visibility(self, delivery: Delivery) -> None:
@@ -226,7 +234,7 @@ class PersistenceWorker:
                     delivery.message_id, delivery.receipt_handle, timeout
                 )
             except ReceiptHandleError:
-                self._metrics = _increment(self._metrics, "ownership_losses")
+                self._increment_metric("ownership_losses")
                 logger.warning(
                     "worker delivery ownership lost during visibility renewal",
                     extra={
@@ -239,7 +247,7 @@ class PersistenceWorker:
             except (QueueClosed, asyncio.CancelledError):
                 return
             else:
-                self._metrics = _increment(self._metrics, "visibility_renewals")
+                self._increment_metric("visibility_renewals")
                 logger.debug(
                     "worker delivery visibility renewed",
                     extra={
@@ -252,7 +260,7 @@ class PersistenceWorker:
         try:
             await self._queue.delete(delivery.message_id, delivery.receipt_handle)
         except ReceiptHandleError:
-            self._metrics = _increment(self._metrics, "ownership_losses")
+            self._increment_metric("ownership_losses")
             logger.warning(
                 "worker delivery ownership lost before acknowledgement",
                 extra={
@@ -292,7 +300,7 @@ class PersistenceWorker:
                     reason_code=reason_code,
                 )
             except ReceiptHandleError:
-                self._metrics = _increment(self._metrics, "ownership_losses")
+                self._increment_metric("ownership_losses")
                 logger.warning(
                     "worker delivery ownership lost before dead letter disposition",
                     extra={
@@ -302,7 +310,7 @@ class PersistenceWorker:
                     },
                 )
                 return False
-            self._metrics = _increment(self._metrics, "dlq")
+            self._increment_metric("dlq")
             logger.warning(
                 "worker delivery moved to dead letter queue",
                 extra={
@@ -323,7 +331,7 @@ class PersistenceWorker:
             delivery.receipt_handle,
             delay,
         )
-        self._metrics = _increment(self._metrics, "retries")
+        self._increment_metric("retries")
         logger.info(
             "worker retry scheduled",
             extra={
@@ -346,26 +354,65 @@ class PersistenceWorker:
                 if self._queue.closed:
                     return
 
-        tasks = [asyncio.create_task(consume()) for _ in range(self._concurrency)]
-        stop_task = asyncio.create_task(stop_event.wait())
-        await asyncio.wait([*tasks, stop_task], return_when=asyncio.FIRST_COMPLETED)
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        if not stop_task.done():
-            stop_task.cancel()
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        await asyncio.gather(stop_task, return_exceptions=True)
-        for result in results:
-            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
-                logger.error(
-                    "worker consumer stopped unexpectedly",
-                    extra={
-                        "event": "worker.supervision_failure",
-                        "error_type": type(result).__name__,
-                    },
-                )
-                raise result
+        self._set_active_workers(self._concurrency)
+        try:
+            tasks = [asyncio.create_task(consume()) for _ in range(self._concurrency)]
+            stop_task = asyncio.create_task(stop_event.wait())
+            await asyncio.wait([*tasks, stop_task], return_when=asyncio.FIRST_COMPLETED)
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if not stop_task.done():
+                stop_task.cancel()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.gather(stop_task, return_exceptions=True)
+            for result in results:
+                if isinstance(result, BaseException) and not isinstance(
+                    result, asyncio.CancelledError
+                ):
+                    logger.error(
+                        "worker consumer stopped unexpectedly",
+                        extra={
+                            "event": "worker.supervision_failure",
+                            "error_type": type(result).__name__,
+                        },
+                    )
+                    raise result
+        finally:
+            self._set_active_workers(0)
+
+    def _increment_metric(self, field: str) -> None:
+        self._metrics = _increment(self._metrics, field)
+        if self._metrics_registry is None:
+            return
+        outcomes = {
+            "inserted": "inserted",
+            "duplicates": "duplicate",
+            "conflicts": "conflict",
+            "decode_failures": "decode_failure",
+            "processing_errors": "processing_error",
+            "retries": "retry",
+            "dlq": "dlq",
+            "visibility_renewals": "visibility_renewed",
+            "ownership_losses": "ownership_lost",
+        }
+        outcome = outcomes.get(field)
+        if outcome is not None:
+            self._metrics_registry.inc(
+                "event_platform_worker_operations_total", {"outcome": outcome}
+            )
+
+    def _record_processing_latency(self, started_at: float) -> None:
+        if self._metrics_registry is not None:
+            self._metrics_registry.observe_histogram(
+                "event_platform_worker_processing_latency_seconds",
+                max(0.0, time.perf_counter() - started_at),
+                {"operation": "process"},
+            )
+
+    def _set_active_workers(self, value: int) -> None:
+        if self._metrics_registry is not None:
+            self._metrics_registry.set_gauge("event_platform_worker_active", float(value))
 
 
 def _increment(metrics: WorkerMetrics, field: str) -> WorkerMetrics:

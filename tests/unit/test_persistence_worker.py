@@ -9,6 +9,7 @@ from uuid import UUID
 import pytest
 
 from event_platform.domain.events import CanonicalEvent, EventInput
+from event_platform.observability.metrics import MetricsRegistry
 from event_platform.queue import InProcessQueue
 from event_platform.storage.mongo import EventAlreadyExists, MongoDependencyError
 from event_platform.worker import PersistenceWorker, RetryPolicy
@@ -80,6 +81,24 @@ async def test_insert_ack_boundary_and_metrics() -> None:
     assert await worker.process_once()
     assert (await queue.stats()).depth == 0
     assert worker.metrics.inserted == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_metrics_record_processing_latency_and_activity() -> None:
+    queue = InProcessQueue(capacity=1)
+    stored = FakeStore()
+    metrics = MetricsRegistry()
+    value = event()
+    await queue.send(value.model_dump(mode="json"), message_id=str(value.event_id))
+    worker = PersistenceWorker(queue, stored, metrics=metrics)  # type: ignore[arg-type]
+
+    assert await worker.process_once()
+    rendered = metrics.render()
+    assert (
+        'event_platform_worker_processing_latency_seconds_count{operation="process"} 1'
+        in rendered
+    )
+    assert 'event_platform_worker_operations_total{outcome="inserted"} 1' in rendered
 
 
 @pytest.mark.asyncio

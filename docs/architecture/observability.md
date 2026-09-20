@@ -23,17 +23,20 @@ The production target is a metrics backend with:
 Avoid unbounded-cardinality labels such as user ID, URL, request ID, or event ID.
 
 Feature 015 exposes a dependency-free Prometheus text registry. Route paths are
-normalized to fixed families before recording and the registry always publishes
-the HTTP, queue, worker, Mongo, Elasticsearch, Redis, rate-limit, and lifecycle
-families. The request middleware accepts only canonical UUID request IDs,
-generates operation IDs, records completion status, and emits JSON completion
+normalized to fixed families before recording and the registry publishes bounded
+counters, fixed-bucket latency histograms, and current-state gauges for HTTP,
+queue, worker, Mongo, Elasticsearch, Redis, rate-limit, lifecycle, projection,
+and cache activity. Histogram labels and route families are fixed vocabularies;
+request IDs, event IDs, URLs, and arbitrary exception text never become labels.
+The request middleware accepts only canonical UUID request IDs, generates
+operation IDs, records completion status and latency, and emits JSON completion
 events with normalized route names.
 
-The interview implementation currently exposes bounded counters and health
-state through this registry. Latency histograms, queue lag gauges, and
-high-cardinality exemplars remain a deliberate production follow-up because
-they require selecting and operating a metrics backend; they are not silently
-represented as zero-valued counters.
+The in-process registry is intentionally small and suitable for this assignment:
+it exposes count, sum, min/max, and cumulative bucket distributions plus queue,
+worker, projection, and dependency gauges. A production deployment can export
+the same measurements through an adapter to Prometheus, OpenTelemetry, or
+another operated monitoring backend without changing domain code.
 
 ## Health
 

@@ -25,6 +25,9 @@ def test_liveness_is_cheap_and_metrics_are_prometheus_text() -> None:
     assert "event_platform_mongo_operations_total" in metrics.text
     assert "event_platform_queue_operations_total" in metrics.text
     assert "event_platform_redis_operations_total" in metrics.text
+    assert "event_platform_request_latency_seconds" in metrics.text
+    assert "event_platform_queue_depth" in metrics.text
+    assert "event_platform_projection_lag_seconds" in metrics.text
 
 
 def test_readiness_requires_mongo_but_components_expose_safe_degraded_states() -> None:
@@ -71,6 +74,33 @@ def test_metrics_registry_rejects_unknown_families_and_normalizes_methods() -> N
         registry.inc("custom_metric", {"outcome": "success"})  # type: ignore[arg-type]
     registry.observe_http(method="TRACE", path="/health/live", status=200)
     assert 'method="OTHER"' in registry.render()
+
+
+def test_metrics_registry_histograms_and_gauges_are_bounded_and_current() -> None:
+    registry = MetricsRegistry()
+    registry.observe_http(
+        method="GET", path="/events/search", status=200, duration_seconds=0.02
+    )
+    registry.observe_histogram(
+        "event_platform_request_latency_seconds", 2.0, {"route": "search"}
+    )
+    registry.set_gauge("event_platform_queue_depth", 7)
+    registry.set_gauge("event_platform_queue_depth", 2)
+
+    rendered = registry.render()
+    assert 'event_platform_request_latency_seconds_count{route="search"} 2' in rendered
+    assert 'event_platform_request_latency_seconds_bucket{le="0.025",route="search"} 1' in rendered
+    assert 'event_platform_request_latency_seconds_bucket{le="+Inf",route="search"} 2' in rendered
+    assert 'event_platform_request_latency_seconds_max{route="search"} 2' in rendered
+    assert 'event_platform_queue_depth 2' in rendered
+    assert 'event_platform_queue_depth 7' not in rendered
+
+    with pytest.raises(ValueError):
+        registry.observe_histogram(
+            "event_platform_request_latency_seconds", 0.1, {"route": "unbounded"}
+        )
+    with pytest.raises(ValueError):
+        registry.set_gauge("event_platform_queue_depth", -1)
 
 
 @pytest.mark.asyncio

@@ -108,13 +108,14 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         injected_event_store = getattr(app.state, "event_store", None)
         injected_search_service = getattr(app.state, "search_service", None)
         try:
+            app.state.metrics = MetricsRegistry()
             app.state.queue = InProcessQueue(
                 capacity=app.state.settings.queue_capacity,
                 visibility_timeout=app.state.settings.queue_visibility_timeout,
                 send_timeout=app.state.settings.queue_send_timeout,
+                metrics=app.state.metrics,
             )
             resources.append(("queue", app.state.queue.close))
-            app.state.metrics = MetricsRegistry()
             app.state.health = HealthRegistry(app.state.metrics)
             app.state.services = build_application_services(
                 queue=app.state.queue,
@@ -212,7 +213,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     socket_timeout=timeout,
                 )
                 resources.append(("redis", redis_client.aclose))
-                app.state.realtime_cache = RedisCache(redis_client)
+                app.state.realtime_cache = RedisCache(redis_client, metrics=app.state.metrics)
             else:
                 app.state.realtime_cache = None
             if app.state.settings.mongo_url:
@@ -255,7 +256,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                         "verified_indexes": verification.verified_indexes,
                     },
                 )
-                app.state.event_store = MongoEventStore(event_collection)
+                app.state.event_store = MongoEventStore(event_collection, metrics=app.state.metrics)
                 app.state.services.event_store = app.state.event_store
                 app.state.idempotency_registry = MongoIdempotencyRegistry(
                     mongo_database["event_idempotency"]
@@ -291,6 +292,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     previous_cursor_key=(
                         app.state.cursor_keys[1] if len(app.state.cursor_keys) > 1 else None
                     ),
+                    metrics=app.state.metrics,
                 )
                 app.state.services.search_service = app.state.search_service
                 try:
@@ -366,9 +368,11 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     writer=ElasticsearchProjectionWriter(
                         elasticsearch_client,
                         alias=app.state.settings.elasticsearch_alias,
+                        metrics=app.state.metrics,
                     ),
                     owner=projector_owner,
                     generation=0,
+                    metrics=app.state.metrics,
                 )
                 source = MongoChangeStreamSource(event_collection)
                 app.state.search_projector = search_projector
@@ -435,6 +439,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     app.state.queue,
                     app.state.event_store,
                     concurrency=app.state.settings.worker_concurrency,
+                    metrics=app.state.metrics,
                 )
                 app.state.persistence_worker = worker
 

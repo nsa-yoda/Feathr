@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -23,6 +24,7 @@ from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from event_platform.domain.events import CanonicalEvent, MetadataValue
+from event_platform.observability.metrics import MetricsRegistry
 
 _SOURCE_URL_ADAPTER = TypeAdapter(HttpUrl)
 
@@ -235,25 +237,43 @@ def _query_filter(query: EventQuery) -> dict[str, object]:
 class MongoEventStore:
     """Own canonical event persistence behind a typed async boundary."""
 
-    def __init__(self, collection: AsyncCollection[Mapping[str, Any]]) -> None:
+    def __init__(
+        self,
+        collection: AsyncCollection[Mapping[str, Any]],
+        *,
+        metrics: MetricsRegistry | None = None,
+    ) -> None:
         self._collection = collection
+        self._metrics = metrics
 
     async def insert(self, event: CanonicalEvent) -> None:
+        started_at = time.perf_counter()
+        outcome = "failure"
         try:
             await self._collection.insert_one(event_to_document(event))
+            outcome = "success"
         except DuplicateKeyError:
             raise EventAlreadyExists("insert_event") from None
         except PyMongoError:
             raise MongoDependencyError("insert_event") from None
+        finally:
+            self._record_operation("insert", outcome, started_at)
 
     async def get_by_id(self, event_id: UUID) -> CanonicalEvent | None:
+        started_at = time.perf_counter()
+        outcome = "failure"
         try:
             document = await self._collection.find_one({"event_id": str(event_id)})
+            outcome = "success"
         except PyMongoError:
             raise MongoDependencyError("get_event") from None
+        finally:
+            self._record_operation("get", outcome, started_at)
         return event_from_document(document) if document is not None else None
 
     async def query(self, query: EventQuery) -> AsyncIterator[CanonicalEvent]:
+        started_at = time.perf_counter()
+        outcome = "failure"
         try:
             cursor = (
                 self._collection.find(_query_filter(query))
@@ -262,8 +282,11 @@ class MongoEventStore:
             )
             async for document in cursor:
                 yield event_from_document(document)
+            outcome = "success"
         except PyMongoError:
             raise MongoDependencyError("query_events") from None
+        finally:
+            self._record_operation("query", outcome, started_at)
 
     async def aggregate(
         self,
@@ -274,20 +297,43 @@ class MongoEventStore:
         stages = _validated_pipeline(pipeline)
         if max_time_ms is not None and max_time_ms <= 0:
             raise InvalidAggregation("aggregation max time must be positive")
+        started_at = time.perf_counter()
+        outcome = "failure"
         try:
             options = {} if max_time_ms is None else {"maxTimeMS": max_time_ms}
             cursor = await cast(Any, self._collection).aggregate(stages, **options)
             documents = await cursor.to_list(length=None)
+            outcome = "success"
         except PyMongoError:
             raise MongoDependencyError("aggregate_events") from None
+        finally:
+            self._record_operation("aggregate", outcome, started_at)
         return [cast(Mapping[str, object], document) for document in documents]
 
     async def ensure_indexes(self) -> tuple[str, ...]:
+        started_at = time.perf_counter()
+        outcome = "failure"
         try:
             names = await self._collection.create_indexes(list(index_models()))
+            outcome = "success"
         except PyMongoError:
             raise MongoDependencyError("ensure_indexes") from None
+        finally:
+            self._record_operation("ensure_indexes", outcome, started_at)
         return tuple(names)
+
+    def _record_operation(self, operation: str, outcome: str, started_at: float) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.observe_histogram(
+            "event_platform_mongo_operation_latency_seconds",
+            max(0.0, time.perf_counter() - started_at),
+            {"operation": operation},
+        )
+        self._metrics.inc(
+            "event_platform_mongo_operations_total",
+            {"operation": operation, "outcome": outcome},
+        )
 
 
 def _validated_pipeline(

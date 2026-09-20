@@ -9,8 +9,11 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from event_platform.observability.metrics import MetricsRegistry
 
 DLQClassification = Literal["transient", "permanent", "unknown"]
 DLQReasonCode = Literal[
@@ -105,6 +108,7 @@ class InProcessQueue:
         visibility_timeout: float = 30.0,
         send_timeout: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         if capacity < 1:
             raise ValueError("capacity must be positive")
@@ -114,6 +118,7 @@ class InProcessQueue:
         self._visibility_timeout = visibility_timeout
         self._send_timeout = send_timeout
         self._clock = clock
+        self._metrics = metrics
         self._condition = asyncio.Condition()
         self._messages: dict[str, _Message] = {}
         self._ready: deque[_Message] = deque()
@@ -162,6 +167,7 @@ class InProcessQueue:
             self._messages[identifier] = message
             self._ready.append(message)
             self._condition.notify_all()
+            self._record_state()
             return identifier
 
     async def receive(self, *, long_poll: float = 0.0) -> Delivery:
@@ -188,6 +194,7 @@ class InProcessQueue:
                         self._expiry,
                         (message.visibility_deadline, self._sequence, message.message_id),
                     )
+                    self._record_state()
                     return Delivery(
                         message.message_id,
                         message.body,
@@ -211,6 +218,7 @@ class InProcessQueue:
             message = self._current(message_id, receipt_handle)
             del self._messages[message.message_id]
             self._condition.notify_all()
+            self._record_state()
 
     async def change_visibility(self, message_id: str, receipt_handle: str, timeout: float) -> None:
         if timeout < 0:
@@ -223,6 +231,7 @@ class InProcessQueue:
                 self._expiry, (message.visibility_deadline, self._sequence, message.message_id)
             )
             self._condition.notify_all()
+            self._record_state()
 
     async def dead_letter(
         self,
@@ -253,6 +262,7 @@ class InProcessQueue:
             )
             del self._messages[message.message_id]
             self._condition.notify_all()
+            self._record_state()
 
     async def redrive(self, *, max_receive_count: int) -> int:
         if max_receive_count < 1:
@@ -278,6 +288,7 @@ class InProcessQueue:
                 )
                 del self._messages[message.message_id]
             self._condition.notify_all()
+            self._record_state()
             return len(moved)
 
     async def stats(self) -> QueueStats:
@@ -289,7 +300,7 @@ class InProcessQueue:
                 (max(0.0, now - message.enqueued_at) for message in self._messages.values()),
                 default=0.0,
             )
-            return QueueStats(
+            stats = QueueStats(
                 self._capacity,
                 len(self._messages),
                 visible,
@@ -297,6 +308,8 @@ class InProcessQueue:
                 len(self._dlq),
                 oldest_age,
             )
+            self._record_state(stats)
+            return stats
 
     async def dlq(self) -> tuple[Delivery, ...]:
         async with self._condition:
@@ -354,10 +367,35 @@ class InProcessQueue:
             self._accepting = False
             self._closed = True
             self._condition.notify_all()
+            self._record_state()
 
     def _ensure_open(self) -> None:
         if self._closed:
             raise QueueClosed("queue is closed")
+
+    def _record_state(self, stats: QueueStats | None = None) -> None:
+        if self._metrics is None:
+            return
+        current = stats or self._stats(self._clock())
+        self._metrics.set_gauge("event_platform_queue_depth", float(current.depth))
+        self._metrics.set_gauge("event_platform_queue_oldest_age_seconds", current.oldest_age)
+        self._metrics.set_gauge("event_platform_queue_in_flight", float(current.in_flight))
+
+    def _stats(self, now: float) -> QueueStats:
+        self._promote_expired(now)
+        visible = sum(message.visibility_deadline <= now for message in self._messages.values())
+        oldest_age = max(
+            (max(0.0, now - message.enqueued_at) for message in self._messages.values()),
+            default=0.0,
+        )
+        return QueueStats(
+            self._capacity,
+            len(self._messages),
+            visible,
+            len(self._messages) - visible,
+            len(self._dlq),
+            oldest_age,
+        )
 
     def _current(self, message_id: str, receipt_handle: str) -> _Message:
         message = self._messages.get(message_id)

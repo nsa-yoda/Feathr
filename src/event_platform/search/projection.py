@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Literal, Protocol
 
 from event_platform.domain.events import CanonicalEvent
+from event_platform.observability.metrics import MetricsRegistry
 from event_platform.search.mapping import project_search_document
 
 logger = logging.getLogger("event_platform.search_projection")
@@ -171,6 +172,7 @@ class SearchProjector:
         retry_policy: RetryPolicy | None = None,
         now: Callable[[], datetime] | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         if not projector or len(projector) > 64:
             raise ValueError("projector name is invalid")
@@ -185,6 +187,7 @@ class SearchProjector:
         self._retry_policy = retry_policy or RetryPolicy()
         self._now = now or (lambda: datetime.now(UTC))
         self._sleep = sleep
+        self._metrics = metrics
         self._stop_requested = False
         self._current: ProjectionCheckpoint | None = None
         self._status = ProjectionStatus("starting", False, None, None, None, None)
@@ -514,13 +517,14 @@ class SearchProjector:
         return self._status
 
     def status(self) -> ProjectionStatus:
+        self._record_lag()
         return self._status
 
     def _status_from_checkpoint(self, checkpoint: ProjectionCheckpoint) -> ProjectionStatus:
         now = self._now()
         last_event = checkpoint.last_projected_event_at
         lag = max(0.0, (now - last_event).total_seconds()) if last_event else None
-        return ProjectionStatus(
+        status = ProjectionStatus(
             checkpoint.state,
             True,
             checkpoint.updated_at,
@@ -528,6 +532,17 @@ class SearchProjector:
             lag,
             checkpoint.failure_code,
         )
+        self._record_lag(status)
+        return status
+
+    def _record_lag(self, status: ProjectionStatus | None = None) -> None:
+        if self._metrics is not None:
+            current = status or self._status
+            self._metrics.set_gauge(
+                "event_platform_projection_lag_seconds",
+                current.lag_seconds or 0.0,
+                {"component": "search_projector"},
+            )
 
     def _emit(self, event: str, **fields: object) -> None:
         logger.info(event, extra={"event": event, "projector": self.projector, **fields})

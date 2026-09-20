@@ -8,7 +8,7 @@
 
 The verified P0 and P1 correctness findings are fixed in the current revision. The runtime now separates queue admission shutdown from persistence-worker draining, enforces critical versus degradable task behavior, fences producer idempotency and Elasticsearch projector ownership with Mongo CAS/lease state, batches Elasticsearch writes, bounds delayed rate-limit waiters, and preserves compatibility with pre-ACR2 search documents. MongoDB remains canonical; Elasticsearch and Redis remain derived/degradable. The in-process queue is still intentionally volatile across a process crash, as required by the interview assignment.
 
-The remaining intentional limits are the assignment's single static bearer-token security model, raw Mongo analytics instead of materialized rollups, counter-only local metrics, and the deliberately small typed lifespan composition root. Each is called out below and in `ARCHITECTURE.md`/`docs/operations/runtime-guarantees.md`.
+The remaining intentional limits are the assignment's single static bearer-token security model, raw Mongo analytics instead of materialized rollups, and the deliberately small typed lifespan composition root. Each is called out below and in `ARCHITECTURE.md`/`docs/operations/runtime-guarantees.md`.
 
 ## Finding-by-finding disposition
 
@@ -46,7 +46,7 @@ The remaining intentional limits are the assignment's single static bearer-token
 | P2-07 CORS omitted Authorization | **FIXED** | `security_headers.py` allows `Authorization` and caches the configured middleware instead of rebuilding it per request; security tests cover the header. |
 | P2-08 search projection stored internal hashes | **FIXED** | New projection documents omit payload/idempotency hashes and mappings no longer index them. Search strips those fields from old generations and reconstructs the canonical payload hash at the typed boundary for online compatibility. |
 | P2-09 local bucket eviction was O(n) per request | **FIXED** | `rate_limit/local_bucket.py` evicts expired entries from the ordered front incrementally. |
-| P2-10 metrics lacked latency/lag gauges | **INTENTIONALLY DEFERRED** | The dependency-free interview registry remains bounded counters plus health state. `docs/architecture/observability.md` now states that production histograms/gauges require an operated metrics backend rather than pretending counters provide those signals. |
+| P2-10 metrics lacked latency/lag gauges | **FIXED** | `observability/metrics.py` now provides fixed-bucket latency histograms and current-state gauges. API middleware, queue, worker, Mongo, Elasticsearch, Redis, projection, and cache boundaries record bounded measurements; `/metrics` and the operations UI expose them. Focused histogram, gauge, queue, worker, and frontend transformation tests were added. |
 | P2-11 lifespan composition root was high fanout | **INTENTIONALLY DEFERRED** | `core/composition.py` provides a typed application-service boundary and the lifespan remains the explicit ownership/composition root. Splitting further would add indirection without changing the assignment's service boundaries; this tradeoff is documented. |
 
 ### P3
@@ -84,7 +84,7 @@ The remaining intentional limits are the assignment's single static bearer-token
 1. The queue is intentionally process-local and volatile, so a hard process crash cannot recover an accepted-but-not-yet-persisted message.
 2. Static bearer authentication is not a complete multi-tenant IAM/authorization system.
 3. A failure after queue admission but before idempotency completion is handled conservatively and may require replay/reconciliation; the durable outbox path is documented for production.
-4. Raw Mongo analytics and counter-only metrics are assignment-sized implementations; materialized rollups and an operated histogram/gauge backend are the next scale steps.
+4. Raw Mongo analytics and the intentionally dependency-free in-process metrics registry are assignment-sized implementations; materialized rollups and an operated export backend are the next scale steps.
 5. The integration suite is available but direct venv execution skips its 12 service-marked tests; Compose smoke exercised live Mongo, Elasticsearch, Redis, API, UI, ingestion, canonical query, search, and realtime stats paths.
 
 ## Validation commands and results

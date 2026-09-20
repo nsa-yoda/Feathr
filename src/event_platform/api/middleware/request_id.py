@@ -1,6 +1,7 @@
 """Assign safe request and operation correlation IDs to each HTTP request."""
 
 import logging
+import time
 from uuid import UUID, uuid4
 
 from starlette.datastructures import MutableHeaders
@@ -25,6 +26,7 @@ class RequestIdMiddleware:
         operation_id = str(uuid4())
         state["request_id"] = request_id
         state["operation_id"] = operation_id
+        started_at = time.perf_counter()
         app = scope.get("app")
         metrics = getattr(getattr(app, "state", None), "metrics", None)
 
@@ -36,7 +38,10 @@ class RequestIdMiddleware:
                 status = int(message.get("status", 500))
                 if isinstance(metrics, MetricsRegistry):
                     metrics.observe_http(
-                        method=_method(scope), path=str(scope.get("path", "/")), status=status
+                        method=_method(scope),
+                        path=str(scope.get("path", "/")),
+                        status=status,
+                        duration_seconds=max(0.0, time.perf_counter() - started_at),
                     )
                 logger.info(
                     "HTTP request completed",

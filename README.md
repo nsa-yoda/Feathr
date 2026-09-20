@@ -157,7 +157,7 @@ tenant/role authorization at the trusted production edge.
 |---|---|---|
 | OpenAPI | `http://localhost:8000/docs` | FastAPI contract discovery |
 | Liveness/readiness/components | `/health/live`, `/health/ready`, `/health/components` | Process and dependency state |
-| Metrics | `/metrics` | Prometheus text, safe operational counters |
+| Metrics | `/metrics` | Prometheus text, bounded counters, latency histograms, and operational gauges |
 | Canonical events | `POST/GET /events` | Mongo-backed event acceptance/query |
 | Search | `GET /events/search` | Eventually consistent Elasticsearch projection |
 | Analytics/realtime | `/events/stats`, `/events/stats/realtime` | Mongo aggregation and Redis cache-aside |
@@ -191,6 +191,12 @@ Feature 025 reconciles the final architecture, traceability, and AI workflow doc
 - Readiness: `http://localhost:8000/health/ready`
 - Component health: `http://localhost:8000/health/components`
 - Metrics: `http://localhost:8000/metrics`
+
+The metrics endpoint is intentionally a small in-process, dependency-free
+observability surface for the interview assignment. It reports bounded counters,
+fixed latency buckets, and current queue/worker/projection gauges without adding
+Prometheus, OpenTelemetry, or Grafana to the stack. A production deployment can
+export these same measurements through a monitoring adapter.
 
 ## AI in My Workflow
 

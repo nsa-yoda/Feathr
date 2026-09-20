@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from event_platform.observability.metrics import MetricsRegistry
 from event_platform.queue import (
     InProcessQueue,
     QueueClosed,
@@ -39,6 +40,25 @@ async def test_send_receive_delete_and_immutable_body() -> None:
         delivery.body["event"] = "changed"  # type: ignore[index]
     await queue.delete(delivery.message_id, delivery.receipt_handle)
     assert (await queue.stats()).depth == 0
+
+
+@pytest.mark.asyncio
+async def test_queue_metrics_expose_current_depth_age_and_in_flight_state() -> None:
+    clock = ManualClock()
+    metrics = MetricsRegistry()
+    queue = InProcessQueue(capacity=2, clock=clock, metrics=metrics)
+    await queue.send({"value": 1})
+    clock.advance(3)
+    delivery = await queue.receive()
+
+    rendered = metrics.render()
+    assert "event_platform_queue_depth 1" in rendered
+    assert "event_platform_queue_oldest_age_seconds 3" in rendered
+    assert "event_platform_queue_in_flight 1" in rendered
+
+    await queue.delete(delivery.message_id, delivery.receipt_handle)
+    rendered = metrics.render()
+    assert "event_platform_queue_in_flight 0" in rendered
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import secrets
+import time
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Protocol
@@ -17,6 +18,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from event_platform.domain.events import CanonicalEvent, EventInput, PublicEvent, payload_hash
+from event_platform.observability.metrics import MetricsRegistry
 
 _CURSOR_KEY = secrets.token_bytes(32)
 _MAX_CURSOR_LENGTH = 512
@@ -160,6 +162,7 @@ class ElasticsearchSearchService:
         alias: str = "events-search",
         cursor_key: bytes | None = None,
         previous_cursor_key: bytes | None = None,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         if not alias or len(alias) > 255:
             raise ValueError("search alias is invalid")
@@ -167,6 +170,7 @@ class ElasticsearchSearchService:
         self._alias = alias
         self._cursor_key = cursor_key or _CURSOR_KEY
         self._previous_cursor_key = previous_cursor_key
+        self._metrics = metrics
         if not 16 <= len(self._cursor_key) <= 64:
             raise ValueError("cursor key is invalid")
 
@@ -200,6 +204,7 @@ class ElasticsearchSearchService:
         if search_after is not None:
             body["search_after"] = search_after
         try:
+            started_at = time.perf_counter()
             response = await self._client.search(index=self._alias, body=body)
             hits_container = response.get("hits")
             if not isinstance(hits_container, Mapping):
@@ -266,6 +271,16 @@ class ElasticsearchSearchService:
                 if len(events) > query.limit
                 else None
             )
+            if self._metrics is not None:
+                self._metrics.observe_histogram(
+                    "event_platform_elasticsearch_operation_latency_seconds",
+                    max(0.0, time.perf_counter() - started_at),
+                    {"operation": "search"},
+                )
+                self._metrics.inc(
+                    "event_platform_elasticsearch_operations_total",
+                    {"operation": "search", "outcome": "success"},
+                )
         except (KeyError, TypeError, ValueError, ValidationError) as error:
             logger.warning(
                 "search dependency response rejected",
@@ -275,6 +290,16 @@ class ElasticsearchSearchService:
                     "classification": "malformed_response",
                 },
             )
+            if self._metrics is not None:
+                self._metrics.observe_histogram(
+                    "event_platform_elasticsearch_operation_latency_seconds",
+                    max(0.0, time.perf_counter() - started_at),
+                    {"operation": "search"},
+                )
+                self._metrics.inc(
+                    "event_platform_elasticsearch_operations_total",
+                    {"operation": "search", "outcome": "failure"},
+                )
             raise SearchDependencyError("search dependency unavailable") from None
         except Exception as error:
             # The official client has several transport-specific exception types. Classify
@@ -287,6 +312,16 @@ class ElasticsearchSearchService:
                     "classification": "transport_failure",
                 },
             )
+            if self._metrics is not None:
+                self._metrics.observe_histogram(
+                    "event_platform_elasticsearch_operation_latency_seconds",
+                    max(0.0, time.perf_counter() - started_at),
+                    {"operation": "search"},
+                )
+                self._metrics.inc(
+                    "event_platform_elasticsearch_operations_total",
+                    {"operation": "search", "outcome": "failure"},
+                )
             raise SearchDependencyError("search dependency unavailable") from None
         return SearchPage(
             items=[PublicEvent.from_canonical(item) for item in page_items],

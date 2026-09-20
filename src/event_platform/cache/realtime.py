@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol, cast
@@ -14,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from event_platform.observability.metrics import MetricsRegistry
 from event_platform.storage.mongo import MongoDependencyError
 
 logger = logging.getLogger("event_platform.realtime_stats")
@@ -54,28 +56,59 @@ class AggregateStore(Protocol):
 class RedisCache(CachePort):
     """Translate Redis driver failures into a safe cache boundary."""
 
-    def __init__(self, client: Redis, *, key_prefix: str = "") -> None:
+    def __init__(
+        self,
+        client: Redis,
+        *,
+        key_prefix: str = "",
+        metrics: MetricsRegistry | None = None,
+    ) -> None:
         if len(key_prefix) > 64 or any(
             char not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for char in key_prefix
         ):
             raise ValueError("cache key prefix is invalid")
         self._client = client
         self._key_prefix = key_prefix
+        self._metrics = metrics
 
     def _key(self, key: str) -> str:
         return f"{self._key_prefix}:{key}" if self._key_prefix else key
 
     async def get(self, key: str) -> str | bytes | None:
+        started_at = time.perf_counter()
+        outcome = "failure"
         try:
-            return cast(str | bytes | None, await self._client.get(self._key(key)))
+            value = cast(str | bytes | None, await self._client.get(self._key(key)))
+            outcome = "success"
+            return value
         except (RedisError, OSError, TimeoutError):
             raise CacheUnavailable("get") from None
+        finally:
+            self._record_operation("get_cache", outcome, started_at)
 
     async def set(self, key: str, value: str, *, ttl_seconds: int) -> None:
+        started_at = time.perf_counter()
+        outcome = "failure"
         try:
             await self._client.set(self._key(key), value, ex=ttl_seconds)
+            outcome = "success"
         except (RedisError, OSError, TimeoutError):
             raise CacheUnavailable("set") from None
+        finally:
+            self._record_operation("set_cache", outcome, started_at)
+
+    def _record_operation(self, operation: str, outcome: str, started_at: float) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.observe_histogram(
+            "event_platform_redis_operation_latency_seconds",
+            max(0.0, time.perf_counter() - started_at),
+            {"operation": operation},
+        )
+        self._metrics.inc(
+            "event_platform_redis_operations_total",
+            {"operation": operation, "outcome": outcome},
+        )
 
 
 class RealtimeStatsResponse(BaseModel):
@@ -199,6 +232,7 @@ class RealtimeStatsService:
         max_event_types: int = MAX_EVENT_TYPES,
         now: Callable[[], datetime] = _utc_now,
         lock_factory: Callable[[], asyncio.Lock] = asyncio.Lock,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         if not 1 <= ttl_seconds <= 300:
             raise ValueError("realtime cache TTL is outside the supported range")
@@ -210,6 +244,7 @@ class RealtimeStatsService:
         self._max_event_types = max_event_types
         self._now = now
         self._lock_factory = lock_factory
+        self._metrics = metrics
         self._locks: dict[str, asyncio.Lock] = {}
         self._inflight: dict[str, asyncio.Task[tuple[RealtimeStatsResponse, str]]] = {}
 
@@ -222,6 +257,7 @@ class RealtimeStatsService:
         cached, cache_available = await self._read_cache(key, request_id=request_id)
         if cached is not None:
             self._emit_outcome("HIT", request_id)
+            self._record_cache_outcome("hit")
             return _response_from_cached(cached, request_id), "HIT"
 
         lock = self._locks.setdefault(key, self._lock_factory())
@@ -230,6 +266,7 @@ class RealtimeStatsService:
             cache_available = cache_available and second_cache_available
             if cached is not None:
                 self._emit_outcome("HIT", request_id)
+                self._record_cache_outcome("hit")
                 return _response_from_cached(cached, request_id), "HIT"
             task = self._inflight.get(key)
             if task is None:
@@ -251,8 +288,10 @@ class RealtimeStatsService:
         response = response.model_copy(update={"request_id": request_id})
         if outcome == "BYPASS":
             self._emit_bypass(request_id=request_id)
+            self._record_cache_outcome("bypass")
         else:
             self._emit_outcome(outcome, request_id)
+            self._record_cache_outcome("miss" if outcome == "MISS" else "bypass")
         return response, outcome
 
     async def _compute_and_store(
@@ -348,6 +387,10 @@ class RealtimeStatsService:
                 "request_id": str(request_id) if request_id is not None else None,
             },
         )
+
+    def _record_cache_outcome(self, outcome: str) -> None:
+        if self._metrics is not None:
+            self._metrics.increment_cache(outcome)
 
     @staticmethod
     def _emit_outcome(outcome: str, request_id: UUID) -> None:
