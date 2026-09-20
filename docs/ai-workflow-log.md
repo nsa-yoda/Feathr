@@ -189,6 +189,12 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Contribution:** added explicit owner/generation checkpoint fields, stale-generation rejection at Mongo storage, a bounded batch API, and regression coverage.
 - **Validation:** projection unit suite passed 27 tests; Ruff and strict mypy passed. Concurrent replica recovery remains service-gated.
 
+### 2026-09-20 — Feature 030 request idempotency
+
+- **Task:** turn `Idempotency-Key` into a durable request registry with replay and conflict semantics.
+- **Contribution:** added Mongo/local registry adapters, scoped hashed identities, reservation/completion flow around event admission, replay-window configuration, and contract tests.
+- **Validation:** focused ingestion/registry suite passed 8 tests; Ruff and strict mypy passed. Multi-replica race evidence remains service-gated.
+
 ### 2026-09-18 — Feature 009 review gate and merge preparation
 
 - **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.

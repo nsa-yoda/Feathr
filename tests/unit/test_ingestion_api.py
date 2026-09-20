@@ -42,6 +42,29 @@ def test_ingestion_carries_only_idempotency_hash_into_queue_body() -> None:
         assert client.app.state.queue  # type: ignore[attr-defined]
 
 
+def test_matching_idempotency_retry_replays_original_event_identity() -> None:
+    with TestClient(create_app(ServiceSettings(env="test"))) as client:
+        first = client.post("/events", json=payload(), headers={"Idempotency-Key": "retry-key"})
+        second = client.post("/events", json=payload(), headers={"Idempotency-Key": "retry-key"})
+    assert first.status_code == second.status_code == 202
+    assert first.json()["event_id"] == second.json()["event_id"]
+
+
+def test_idempotency_key_reuse_with_different_payload_is_conflict() -> None:
+    changed = payload()
+    changed["user_id"] = "other-user"
+    with TestClient(create_app(ServiceSettings(env="test"))) as client:
+        assert (
+            client.post(
+                "/events", json=payload(), headers={"Idempotency-Key": "conflict-key"}
+            ).status_code
+            == 202
+        )
+        response = client.post("/events", json=changed, headers={"Idempotency-Key": "conflict-key"})
+    assert response.status_code == 409
+    assert response.headers["content-type"].startswith("application/problem+json")
+
+
 def test_ingestion_validation_is_problem_json() -> None:
     invalid = payload()
     invalid["timestamp"] = "not-a-timestamp"

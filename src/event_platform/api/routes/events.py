@@ -1,6 +1,7 @@
 """Asynchronous event ingestion route."""
 
 import logging
+from datetime import timedelta
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 from event_platform.api.problems import ProblemResponse
 from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.queue import InProcessQueue, QueueFull
+from event_platform.storage.idempotency import IdempotencyRegistryError
 
 router = APIRouter(tags=["events"])
 logger = logging.getLogger("event_platform.queue")
@@ -47,6 +49,12 @@ class IngestResponse(BaseModel):
                 "application/problem+json": {"schema": ProblemResponse.model_json_schema()}
             },
         },
+        409: {
+            "description": "Idempotency key is already in flight or conflicts with another request",
+            "content": {
+                "application/problem+json": {"schema": ProblemResponse.model_json_schema()}
+            },
+        },
     },
 )
 async def ingest_event(
@@ -56,6 +64,37 @@ async def ingest_event(
 ) -> IngestResponse:
     request_id = UUID(str(getattr(request.state, "request_id", uuid4())))
     canonical = CanonicalEvent.from_input(event, idempotency_key=idempotency_key)
+    registry = getattr(request.app.state, "idempotency_registry", None)
+    scope = str(getattr(request.state, "client_scope", "anonymous"))
+    if idempotency_key is not None and registry is not None:
+        try:
+            decision = await registry.reserve(
+                scope=scope,
+                key=idempotency_key,
+                operation="events.create",
+                fingerprint=canonical.payload_hash,
+                event_id=canonical.event_id,
+                now=canonical.ingested_at,
+                replay_window=timedelta(
+                    seconds=request.app.state.settings.idempotency_replay_window_seconds
+                ),
+            )
+        except IdempotencyRegistryError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="idempotency registry is temporarily unavailable",
+                headers={"Retry-After": "1"},
+            ) from None
+        if decision.outcome == "replay":
+            return IngestResponse(
+                event_id=decision.event_id,
+                status="queued",
+                request_id=request_id,
+            )
+        if decision.outcome == "conflict":
+            raise HTTPException(status_code=409, detail="idempotency key conflicts with request")
+        if decision.outcome == "in_flight":
+            raise HTTPException(status_code=409, detail="idempotency request is already in flight")
     queue: InProcessQueue = request.app.state.queue
     try:
         await queue.send(
@@ -69,6 +108,19 @@ async def ingest_event(
             detail="queue capacity is temporarily unavailable",
             headers={"Retry-After": "1"},
         ) from None
+    if idempotency_key is not None and registry is not None:
+        try:
+            await registry.complete(
+                scope=scope,
+                key=idempotency_key,
+                operation="events.create",
+                event_id=canonical.event_id,
+            )
+        except IdempotencyRegistryError:
+            logger.warning(
+                "idempotency completion deferred",
+                extra={"event": "idempotency.completion_deferred", "outcome": "accepted"},
+            )
     logger.info(
         "event enqueued",
         extra={

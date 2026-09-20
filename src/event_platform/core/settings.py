@@ -25,6 +25,7 @@ class ServiceSettings(BaseSettings):
     queue_capacity: int = Field(default=1_000, ge=1, le=100_000)
     queue_visibility_timeout: float = Field(default=30.0, ge=0.0, le=86_400.0)
     queue_send_timeout: float = Field(default=1.0, ge=0.0, le=60.0)
+    idempotency_replay_window_seconds: int = Field(default=86_400, ge=60, le=2_592_000)
     request_body_max_bytes: int = Field(default=1_048_576, ge=1_024, le=16_777_216)
     request_query_max_bytes: int = Field(default=8_192, ge=256, le=65_536)
     dependency_timeout_seconds: float = Field(default=5.0, ge=0.1, le=30.0)
