@@ -18,7 +18,7 @@ services:
     ports:
       - "${APP_PORT:-8000}:8000"
     depends_on:
-      mongo-init:
+      storage-bootstrap:
         condition: service_completed_successfully
       elasticsearch:
         condition: service_healthy
@@ -61,6 +61,24 @@ services:
     entrypoint: ["/bin/bash", "/opt/feathr/mongo-init.sh"]
     volumes:
       - ./docker/mongo-init.sh:/opt/feathr/mongo-init.sh:ro
+    networks: [feathr]
+    restart: "no"
+
+  storage-bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uv", "run", "--no-dev", "python", "-m", "event_platform.cli", "storage", "bootstrap"]
+    environment:
+      EVENT_PLATFORM_ENV: ${EVENT_PLATFORM_ENV:-local}
+      EVENT_PLATFORM_LOG_LEVEL: ${EVENT_PLATFORM_LOG_LEVEL:-INFO}
+      EVENT_PLATFORM_MONGO_URL: ${EVENT_PLATFORM_MONGO_URL:-mongodb://mongo:27017/?replicaSet=rs0}
+      EVENT_PLATFORM_MONGO_DATABASE: ${EVENT_PLATFORM_MONGO_DATABASE:-event_platform}
+      EVENT_PLATFORM_MONGO_COLLECTION: ${EVENT_PLATFORM_MONGO_COLLECTION:-events}
+      EVENT_PLATFORM_DEPENDENCY_TIMEOUT_SECONDS: ${EVENT_PLATFORM_DEPENDENCY_TIMEOUT_SECONDS:-5}
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
     networks: [feathr]
     restart: "no"
 

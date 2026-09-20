@@ -84,6 +84,11 @@ _EXTRA_FIELDS = (
     "operation_id",
     "component",
     "state",
+    "schema_version",
+    "manifest_fingerprint",
+    "verified_indexes",
+    "collection",
+    "index",
 )
 
 

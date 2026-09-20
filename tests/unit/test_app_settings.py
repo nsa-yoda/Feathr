@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from event_platform.main import create_app
 
@@ -49,3 +50,31 @@ def test_base_app_needs_no_external_dependency_credentials(
 
     with TestClient(create_app()) as client:
         assert client.get("/health/live").json() == {"status": "alive"}
+
+
+@pytest.mark.unit
+def test_production_requires_canonical_mongo() -> None:
+    from event_platform.core.settings import ServiceSettings
+
+    with pytest.raises(ValidationError) as error:
+        ServiceSettings(env="production", mongo_url=None)
+
+    assert "mongo_url is required in production" in str(error.value)
+
+
+@pytest.mark.unit
+def test_loaded_production_configuration_names_missing_mongo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: object
+) -> None:
+    from pathlib import Path
+
+    from event_platform.core.settings import SettingsStartupError, load_settings
+
+    monkeypatch.chdir(Path(str(tmp_path)))
+    monkeypatch.setenv("EVENT_PLATFORM_ENV", "production")
+    monkeypatch.delenv("EVENT_PLATFORM_MONGO_URL", raising=False)
+
+    with pytest.raises(SettingsStartupError) as error:
+        load_settings()
+
+    assert error.value.fields == ("EVENT_PLATFORM_MONGO_URL",)

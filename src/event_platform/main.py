@@ -40,6 +40,13 @@ from event_platform.search.elasticsearch import ElasticsearchProjectionWriter
 from event_platform.search.elasticsearch import create_client as create_elasticsearch_client
 from event_platform.search.projection import SearchProjector
 from event_platform.search.search import ElasticsearchSearchService, SearchClient
+from event_platform.storage.bootstrap import (
+    SCHEMA_VERSION,
+    StorageCollections,
+    StorageDatabase,
+    StorageSchemaError,
+    verify_storage,
+)
 from event_platform.storage.change_stream import MongoChangeStreamSource
 from event_platform.storage.checkpoints import MongoProjectionCheckpointStore
 from event_platform.storage.mongo import MongoEventStore
@@ -191,6 +198,34 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 app.state.mongo_client = mongo_client
                 mongo_database = mongo_client[app.state.settings.mongo_database]
                 event_collection = mongo_database[app.state.settings.mongo_collection]
+                try:
+                    verification = await verify_storage(
+                        cast(StorageDatabase, mongo_database),
+                        collections=StorageCollections(events=app.state.settings.mongo_collection),
+                    )
+                except StorageSchemaError as error:
+                    logger.error(
+                        "storage verification failed",
+                        extra={
+                            "event": "storage.verification_failed",
+                            "component": "mongo",
+                            "classification": error.classification,
+                            "collection": error.collection,
+                            "index": error.index,
+                            "schema_version": SCHEMA_VERSION,
+                        },
+                    )
+                    raise
+                logger.info(
+                    "storage verification complete",
+                    extra={
+                        "event": "storage.verification_complete",
+                        "component": "mongo",
+                        "schema_version": verification.schema_version,
+                        "manifest_fingerprint": verification.manifest_fingerprint,
+                        "verified_indexes": verification.verified_indexes,
+                    },
+                )
                 app.state.event_store = MongoEventStore(event_collection)
             else:
                 app.state.mongo_client = None

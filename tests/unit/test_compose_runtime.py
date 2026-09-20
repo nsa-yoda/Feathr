@@ -22,11 +22,22 @@ def _service_block(text: str, service: str) -> str:
 
 def test_compose_defines_required_services_and_health_conditions() -> None:
     text = COMPOSE.read_text()
-    for service in ("app:", "mongo:", "mongo-init:", "elasticsearch:", "redis:", "ui:"):
+    for service in (
+        "app:",
+        "mongo:",
+        "mongo-init:",
+        "storage-bootstrap:",
+        "elasticsearch:",
+        "redis:",
+        "ui:",
+    ):
         assert f"  {service}" in text
     app = _service_block(text, "app")
+    storage_bootstrap = _service_block(text, "storage-bootstrap")
     ui = _service_block(text, "ui")
-    assert "mongo-init:\n        condition: service_completed_successfully" in app
+    assert "storage-bootstrap:\n        condition: service_completed_successfully" in app
+    assert "mongo-init:\n        condition: service_completed_successfully" in storage_bootstrap
+    assert '"storage", "bootstrap"' in storage_bootstrap
     assert "elasticsearch:\n        condition: service_healthy" in app
     assert "redis:\n        condition: service_healthy" in app
     assert "app:\n        condition: service_healthy" in ui

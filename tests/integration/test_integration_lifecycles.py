@@ -26,7 +26,8 @@ from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.main import create_app
 from event_platform.rate_limit.redis_bucket import RedisLeakyBucket
 from event_platform.search.mapping import INDEX_MAPPING, index_name
-from event_platform.storage.mongo import MongoEventStore, event_to_document
+from event_platform.storage.bootstrap import StorageCollections, bootstrap_storage
+from event_platform.storage.mongo import event_to_document
 from tests.integration.support import (
     IntegrationNamespace,
     new_namespace,
@@ -70,23 +71,28 @@ async def _drop_database(uri: str, namespace: IntegrationNamespace) -> None:
         await client.close()
 
 
+async def _bootstrap_database(uri: str, namespace: IntegrationNamespace) -> None:
+    client = AsyncMongoClient(uri)
+    try:
+        await bootstrap_storage(
+            client[namespace.database],  # type: ignore[arg-type]
+            collections=StorageCollections(events=namespace.collection),
+        )
+    finally:
+        await client.close()
+
+
 @pytest.mark.asyncio
 async def test_http_ingestion_worker_and_query_use_real_mongo() -> None:
     endpoints = require_env("MONGO_URI")
     mongo_uri = endpoints["MONGO_URI"]
     await require_mongo(mongo_uri)
     namespace = new_namespace()
-    setup_client = AsyncMongoClient(mongo_uri)
     try:
-        await MongoEventStore(
-            setup_client[namespace.database][namespace.collection]
-        ).ensure_indexes()
+        await _bootstrap_database(mongo_uri, namespace)
     except (ConnectionError, OSError, PyMongoError):
-        await setup_client.close()
         await _drop_database(mongo_uri, namespace)
         raise
-    else:
-        await setup_client.close()
 
     app = create_app(
         ServiceSettings(
@@ -151,6 +157,7 @@ async def test_http_change_stream_projection_reaches_real_search_api() -> None:
     await require_mongo(mongo_uri, require_replica_set=True)
     await require_elasticsearch(elasticsearch_url)
     namespace = new_namespace()
+    await _bootstrap_database(mongo_uri, namespace)
     physical = index_name(f"events-it-physical-{namespace.suffix}")
     setup_es = AsyncElasticsearch(hosts=[elasticsearch_url])
     try:
@@ -262,6 +269,10 @@ async def test_http_analytics_and_realtime_cache_use_real_services() -> None:
     cache_prefix = f"feature019-{namespace.suffix}"
     cache_key = f"{cache_prefix}:{realtime_cache_key(5)}"
     try:
+        await bootstrap_storage(
+            mongo[namespace.database],  # type: ignore[arg-type]
+            collections=StorageCollections(events=namespace.collection),
+        )
         await events.insert_many([event_to_document(first), event_to_document(second)])
         await redis.delete(cache_key)
         app = create_app(

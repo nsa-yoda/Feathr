@@ -1,5 +1,7 @@
 """Validated runtime settings for the foundation service."""
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -83,7 +85,9 @@ class ServiceSettings(BaseSettings):
 
     @field_validator("mongo_url")
     @classmethod
-    def validate_mongo_url(cls, value: str | None) -> str | None:
+    def validate_mongo_url(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if info.data.get("env") == "production" and value is None:
+            raise ValueError("mongo_url is required in production")
         if value is not None:
             parsed = urlparse(value)
             if parsed.scheme not in {"mongodb", "mongodb+srv"}:

@@ -20,6 +20,9 @@ Open `http://127.0.0.1:8000/docs` for API discovery or request `http://127.0.0.1
 |---|---|---|---|
 | `EVENT_PLATFORM_ENV` | `local` | `local`, `test`, `production` | Runtime environment label. |
 | `EVENT_PLATFORM_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` | Foundation log-level setting. |
+| `EVENT_PLATFORM_MONGO_URL` | unset for foundation-only local mode | MongoDB URI | Canonical storage; required in production and verified before workers start. |
+| `EVENT_PLATFORM_MONGO_DATABASE` | `event_platform` | Mongo database name | Canonical and operational storage database. |
+| `EVENT_PLATFORM_MONGO_COLLECTION` | `events` | Mongo collection name | Canonical event collection covered by the storage manifest. |
 
 An invalid foundation setting aborts startup before serving. The diagnostic names the field without printing its supplied value. Later feature settings will be documented as those integrations land.
 
@@ -98,6 +101,23 @@ Copy `.env.example` to `.env` before Compose. The local defaults use API port
 its Compose network, Redis without a password, a 90-second Mongo init deadline,
 and bounded dependency/request limits. Set `REDIS_PASSWORD` together with a
 matching authenticated Redis URL when credentials are required.
+
+### Mongo storage bootstrap
+
+Mongo schema ownership is explicit. Run the additive, idempotent bootstrap actor
+before starting an application that is configured with Mongo:
+
+```bash
+uv run --locked python -m event_platform.cli storage bootstrap
+uv run --locked python -m event_platform.cli storage verify
+```
+
+`storage bootstrap` creates the versioned event, projection-checkpoint, rebuild,
+lease, and schema-state indexes. `storage verify` is read-only. Application
+lifespan performs the same verification before creating persistence or search
+projector tasks; it never mutates shared schema. Production startup rejects a
+missing canonical Mongo URL. Compose runs the bootstrap service after replica
+set initialization and waits for it to complete before starting the API.
 
 | Surface | URL/path | Ownership/behavior |
 |---|---|---|

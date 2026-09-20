@@ -391,3 +391,13 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Human decision and rationale:** merge only after static gates, clean Compose smoke, and the corrected Postman flow pass; retain `make postman`'s PATH requirement as an environment note rather than installing global tooling.
 - **Artifacts/code affected:** search alias/bootstrap/runtime boundary, smoke script and regression fixture, Postman collection, README, traceability, acceptance checklist, Feature 025 live-gate addendum, and `CODEX_WORK.LOG`.
 - **Validation/review performed:** `make format-check`, `make lint`, `make typecheck`, `make test-unit` (317), `make test-integration` (11 skips), `make test-failure` (29), `make coverage`, `make compose-config`, `DOCKER_CONTEXT=colima make smoke`, and ephemeral Newman all completed with the results recorded above.
+
+### 2026-09-20 — Feature 026 ACR1 storage bootstrap integrity
+
+- **Tool/model:** Codex with Spec Kit workflows and Serena MCP.
+- **Task:** implement the first ACR1 code-review remediation feature: canonical and operational Mongo schema bootstrap, compatibility verification, and production startup enforcement.
+- **AI proposal/contribution:** traced `MongoEventStore`, checkpoint/rebuild stores, application lifespan, Compose dependencies, and existing index ADRs; designed one immutable manifest fingerprint with a separate idempotent CLI mutation actor and read-only application verification.
+- **What was useful:** the storage boundary keeps migration ownership out of API routes and workers while giving startup a bounded proof that `event_id` uniqueness and operational access paths exist.
+- **Pushback/correction:** the existing constitution's local foundation mode remains dependency-light when Mongo is not configured; only production rejects missing Mongo, while any configured Mongo runtime must pass schema verification before background work.
+- **Artifacts/code affected:** Feature 026 plan/design/tasks, `storage/bootstrap.py`, typed storage exports, settings/lifespan/CLI/logging, Compose bootstrap ordering, integration setup, storage/lifecycle/settings/Compose tests, README, architecture, ADR 0010, traceability, and `CODEX_WORK.LOG`.
+- **Validation/review performed:** focused unit and contract tests pass; strict Ruff and mypy pass; real-Mongo integration is explicit and currently skipped because `MONGO_URI` is unset. Full repository gates and convergence remain part of the feature acceptance sequence.

@@ -146,6 +146,15 @@ The platform stores both producer event time (`timestamp`) and server acceptance
 
 MongoDB also stores small operational collections such as search projection checkpoints, rebuild metadata/leases, and optional idempotency records. These are operational control records; the events collection remains the business source of truth.
 
+Storage schema ownership is explicit. The `event_platform.cli storage bootstrap`
+command is the release-time mutation actor: it creates the additive versioned
+manifest and records an immutable schema-state fingerprint. Application replicas
+run verification semantics during lifespan startup before creating workers or
+projectors, and fail startup on missing, incompatible, or drifted state. The
+Compose `storage-bootstrap` one-shot service runs this actor after Mongo replica
+set initialization. No application startup path silently creates or rewrites a
+shared schema.
+
 ## 6. MongoDB indexes
 
 Required baseline indexes:
@@ -155,9 +164,17 @@ Required baseline indexes:
 3. `{event_type: 1, timestamp: -1, event_id: -1}` — event-type + time queries;
 4. `{user_id: 1, timestamp: -1, event_id: -1}` — user + time queries;
 5. `{source_url: 1, timestamp: -1, event_id: -1}` — exact source URL + time queries;
-6. operational indexes for checkpoint/rebuild state only as demanded by those access patterns.
+6. unique `projector` on `search_projection_checkpoints`;
+7. unique `rebuild_id` and descending `started_at` on `search_rebuilds`; and
+8. the built-in `_id_` access path for the fixed `search_rebuild_leases` and
+   `storage_schema` records.
 
 Do **not** index arbitrary metadata in MongoDB. Do **not** create every permutation of filter fields. Each additional index increases write amplification, memory/disk usage, and operational cost. When multiple optional filters are supplied, MongoDB can use the most selective supported index and apply residual predicates.
+
+The required index set is defined once in `src/event_platform/storage/mongo.py`
+for events and extended by the versioned manifest in
+`src/event_platform/storage/bootstrap.py`. New compound indexes require measured
+query-plan evidence and an explicit schema version decision.
 
 For very large-scale analytics, pre-aggregated/materialized time buckets become preferable; that is an evolution, not required in this assessment.
 

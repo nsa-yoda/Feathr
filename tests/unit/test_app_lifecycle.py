@@ -10,6 +10,7 @@ from event_platform.core.logging import JsonLogFormatter
 from event_platform.core.settings import ServiceSettings
 from event_platform.main import create_app
 from event_platform.search.search import ElasticsearchSearchService
+from event_platform.storage.bootstrap import StorageSchemaError, StorageVerification
 
 
 @pytest.mark.unit
@@ -96,3 +97,79 @@ def test_configured_elasticsearch_search_service_is_owned_by_lifespan(
     assert not hasattr(app.state, "search_service")
     assert client.closed is True
     assert client.calls[0]["index"] == "events-feature019"
+
+
+class _FakeMongoDatabase:
+    def __getitem__(self, name: str) -> object:
+        del name
+        return object()
+
+
+class _FakeMongoClient:
+    def __init__(self) -> None:
+        self.database = _FakeMongoDatabase()
+        self.closed = False
+
+    def __getitem__(self, name: str) -> _FakeMongoDatabase:
+        del name
+        return self.database
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.unit
+def test_configured_mongo_is_verified_before_runtime_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from event_platform.core.settings import ServiceSettings
+
+    mongo = _FakeMongoClient()
+    calls: list[str] = []
+
+    async def verify(*args: object, **kwargs: object) -> StorageVerification:
+        del args, kwargs
+        calls.append("verify")
+        return StorageVerification(1, "a" * 64, 10)
+
+    monkeypatch.setattr("event_platform.main.AsyncMongoClient", lambda *args, **kwargs: mongo)
+    monkeypatch.setattr("event_platform.main.verify_storage", verify)
+    app = create_app(ServiceSettings(env="test", mongo_url="mongodb://mongo.test:27017"))
+
+    with TestClient(app):
+        assert calls == ["verify"]
+        assert app.state.persistence_worker_ready is True
+
+    assert mongo.closed is True
+
+
+@pytest.mark.unit
+def test_storage_verification_failure_aborts_startup_and_closes_mongo(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from event_platform.core.settings import ServiceSettings, SettingsStartupError
+
+    mongo = _FakeMongoClient()
+
+    async def fail(*args: object, **kwargs: object) -> StorageVerification:
+        del args, kwargs
+        raise StorageSchemaError("index_missing", collection="events", index="uq_events_event_id")
+
+    monkeypatch.setattr("event_platform.main.AsyncMongoClient", lambda *args, **kwargs: mongo)
+    monkeypatch.setattr("event_platform.main.verify_storage", fail)
+
+    with pytest.raises(SettingsStartupError):
+        with TestClient(
+            create_app(ServiceSettings(env="test", mongo_url="mongodb://mongo.test:27017"))
+        ):
+            pass
+
+    assert mongo.closed is True
+    failures = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "storage.verification_failed"
+    ]
+    assert failures[-1].classification == "index_missing"
+    assert "mongodb://" not in failures[-1].getMessage()
