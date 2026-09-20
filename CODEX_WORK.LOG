@@ -722,3 +722,4 @@ This entry records the preceding `$speckit-plan` turn at the time of logging; it
 2026-09-20T21:57:03Z | start | Implementing P2-10 lightweight latency histograms and current-state gauges; preserving dependency-free metrics and appending all progress to CODEX_WORK.LOG.
 2026-09-20T22:13:37Z | progress | P2-10 instrumentation implemented: bounded fixed-bucket histograms, current gauges, queue/worker/dependency/cache/projector wiring, operations dashboard cards, docs, and focused regression coverage.
 2026-09-20T22:13:37Z | validation | ruff and mypy passed; full unit+failure suite passed 421 tests with escalated loopback access; unprivileged run had one expected process-smoke socket PermissionError; coverage gate passed at 90%.
+2026-09-20T22:14:30Z | commit | Committed P2-10 implementation as 69b3731 (feat: add lightweight latency and queue metrics); unrelated untracked review inputs remain unmodified.
