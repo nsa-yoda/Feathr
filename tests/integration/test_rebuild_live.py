@@ -20,6 +20,7 @@ from event_platform.search.elasticsearch_rebuild import ElasticsearchRebuildAdap
 from event_platform.search.mapping import INDEX_MAPPING, index_name
 from event_platform.search.projection import ProjectionStatus, SearchProjector
 from event_platform.search.rebuild import (
+    RebuildBoundary,
     RebuildConvergence,
     RebuildError,
     RebuildPhase,
@@ -100,6 +101,9 @@ class PausedMongoSource:
     async def capture_high_water(self) -> str | None:
         return await self._source.capture_high_water()
 
+    async def capture_backfill_upper_bound(self) -> str | None:
+        return await self._source.capture_backfill_upper_bound()
+
     def scan(self, *, high_water: str | None = None) -> AsyncIterator[CanonicalEvent]:
         async def paused_scan() -> AsyncIterator[CanonicalEvent]:
             self._scan_count += 1
@@ -127,17 +131,25 @@ class ObservingAdapter(ElasticsearchRebuildAdapter):
 async def _wait_for_convergence(
     source: MongoRebuildSource | PausedMongoSource,
     projector: SearchProjector,
-    initial: str | None,
+    change_source: MongoChangeStreamSource,
+    boundary: RebuildBoundary,
 ) -> RebuildConvergence:
-    boundary = await source.capture_high_water()
-    if boundary is None:
-        return RebuildConvergence(source_high_water=initial, projector_checkpoint=initial)
+    del source
+    token = projector.resume_token()
+    latest = await change_source.latest_position(resume_after=token) if token else None
+    target = latest or boundary.change_stream_position
+    if target is None:
+        return RebuildConvergence(backfill_upper_bound=boundary.backfill_upper_bound)
 
     async def marker_ready() -> RebuildConvergence | None:
-        marker = projector.checkpoint_marker()
+        marker = projector.change_stream_position()
         return (
-            RebuildConvergence(source_high_water=boundary, projector_checkpoint=marker)
-            if marker is not None and marker >= boundary
+            RebuildConvergence(
+                backfill_upper_bound=boundary.backfill_upper_bound,
+                projector_change_stream_position=marker,
+            )
+            if marker is not None
+            and tuple(map(int, marker.split(":", 1))) >= tuple(map(int, target.split(":", 1)))
             else None
         )
 
@@ -146,7 +158,15 @@ async def _wait_for_convergence(
         marker_ready,
         timeout_seconds=20,
         interval_seconds=0.05,
-        observe=lambda _: {"checkpoint": projector.checkpoint_marker() is not None},
+        observe=lambda _: {"checkpoint": projector.change_stream_position() is not None},
+    )
+
+
+async def _capture_boundary(
+    source: MongoRebuildSource | PausedMongoSource, projector: SearchProjector
+) -> RebuildBoundary:
+    return RebuildBoundary(
+        await source.capture_backfill_upper_bound(), projector.change_stream_position()
     )
 
 
@@ -222,6 +242,7 @@ async def test_online_rebuild_proves_live_writes_convergence_and_atomic_cutover(
         assert await ElasticsearchRebuildAdapter(es).resolve_alias(alias) == old_index
 
         source = PausedMongoSource(events)
+        change_source = MongoChangeStreamSource(events)
         adapter = ObservingAdapter(es)
         target_history: list[str | None] = []
 
@@ -239,14 +260,17 @@ async def test_online_rebuild_proves_live_writes_convergence_and_atomic_cutover(
             source_collection=namespace.collection,
             batch_size=1,
             set_live_target=set_live_target,
-            wait_for_convergence=lambda initial: _wait_for_convergence(source, projector, initial),
+            capture_boundary=lambda: _capture_boundary(source, projector),
+            wait_for_convergence=lambda boundary: _wait_for_convergence(
+                source, projector, change_source, boundary
+            ),
         )
         rebuild_task = asyncio.create_task(rebuilder.run())
         await asyncio.wait_for(source.started.wait(), timeout=10)
         current = await MongoRebuildStore(rebuilds, lock_collection=locks).latest()
         assert current is not None
         assert current.phase == RebuildPhase.BULK_INDEXING
-        assert current.source_high_water is not None
+        assert current.backfill_upper_bound is not None
         assert target_history == [current.target_index]
 
         live = [_event(label) for label in ("D", "E", "F")]
@@ -267,8 +291,12 @@ async def test_online_rebuild_proves_live_writes_convergence_and_atomic_cutover(
         assert result.phase == RebuildPhase.COMPLETED
         assert result.scanned_count == 3
         assert result.indexed_count == 3
-        assert result.source_high_water is not None
-        assert result.projector_checkpoint is not None
+        assert result.backfill_upper_bound is not None
+        assert result.change_stream_position is not None
+        assert result.projector_change_stream_position is not None
+        assert tuple(map(int, result.projector_change_stream_position.split(":", 1))) >= tuple(
+            map(int, result.change_stream_position.split(":", 1))
+        )
         assert adapter.swap_calls == [(old_index, result.target_index, result.target_index)]
         assert target_history == [result.target_index, None]
         assert await adapter.resolve_alias(alias) == result.target_index
@@ -289,7 +317,7 @@ async def test_online_rebuild_proves_live_writes_convergence_and_atomic_cutover(
         saved = await MongoRebuildStore(rebuilds, lock_collection=locks).get(result.rebuild_id)
         assert saved is not None
         assert saved.phase == RebuildPhase.COMPLETED
-        assert saved.source_high_water == result.source_high_water
+        assert saved.backfill_upper_bound == result.backfill_upper_bound
         aliases = await es.indices.get_alias(name=alias)
         assert list(aliases) == [result.target_index]
     finally:

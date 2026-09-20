@@ -7,12 +7,13 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pymongo import AsyncMongoClient
 
 from event_platform.core.logging import configure_logging
@@ -44,7 +45,7 @@ SAFE_REBUILD_ERROR_CODES = frozenset(
         "rebuild_lease_unavailable",
         "rebuild_unexpected_failure",
         "rebuild_verification_failed",
-        "source_high_water_failed",
+        "source_boundary_failed",
         "projection_convergence_timeout",
         "rebuild_state_persist_failed",
     }
@@ -97,9 +98,38 @@ class RebuildRecord(BaseModel):
     owner: str = Field(min_length=1, max_length=128)
     lease_expires_at: datetime
     rollback_until: datetime | None = None
-    source_high_water: str | None = Field(default=None, max_length=256)
-    projector_checkpoint: str | None = Field(default=None, max_length=256)
+    backfill_upper_bound: str | None = Field(default=None, max_length=256)
+    change_stream_position: str | None = Field(default=None, max_length=64)
+    projector_change_stream_position: str | None = Field(default=None, max_length=64)
     fencing_token: int = Field(default=0, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_boundary_names(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            return value
+        data = dict(value)
+        if "backfill_upper_bound" not in data and "source_high_water" in data:
+            data["backfill_upper_bound"] = data["source_high_water"]
+        if "change_stream_position" not in data and "projector_checkpoint" in data:
+            data["change_stream_position"] = data["projector_checkpoint"]
+        if "projector_change_stream_position" not in data and "projector_checkpoint" in data:
+            data["projector_change_stream_position"] = data["projector_checkpoint"]
+        data.pop("source_high_water", None)
+        data.pop("projector_checkpoint", None)
+        return data
+
+    @property
+    def source_high_water(self) -> str | None:
+        """Deprecated compatibility view; this is only the backfill bound."""
+
+        return self.backfill_upper_bound
+
+    @property
+    def projector_checkpoint(self) -> str | None:
+        """Deprecated compatibility view for the change-stream position."""
+
+        return self.projector_change_stream_position
 
 
 class RebuildLeaseStore(Protocol):
@@ -133,16 +163,48 @@ class RebuildSearchPort(Protocol):
 
 
 class CanonicalEventSource(Protocol):
+    async def capture_backfill_upper_bound(self) -> str | None: ...
+
     async def capture_high_water(self) -> str | None: ...
 
-    def scan(self, *, high_water: str | None = None) -> AsyncIterator[CanonicalEvent]: ...
+    def scan(self, *, backfill_upper_bound: str | None = None) -> AsyncIterator[CanonicalEvent]: ...
 
 
 class RebuildConvergence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    source_high_water: str | None = Field(default=None, max_length=256)
-    projector_checkpoint: str | None = Field(default=None, max_length=256)
+    backfill_upper_bound: str | None = Field(default=None, max_length=256)
+    projector_change_stream_position: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_boundary_names(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            return value
+        data = dict(value)
+        if "backfill_upper_bound" not in data and "source_high_water" in data:
+            data["backfill_upper_bound"] = data["source_high_water"]
+        if "projector_change_stream_position" not in data and "projector_checkpoint" in data:
+            data["projector_change_stream_position"] = data["projector_checkpoint"]
+        data.pop("source_high_water", None)
+        data.pop("projector_checkpoint", None)
+        return data
+
+    @property
+    def source_high_water(self) -> str | None:
+        return self.backfill_upper_bound
+
+    @property
+    def projector_checkpoint(self) -> str | None:
+        return self.projector_change_stream_position
+
+
+@dataclass(frozen=True, slots=True)
+class RebuildBoundary:
+    """Backfill query bound plus the authoritative projector watermark."""
+
+    backfill_upper_bound: str | None
+    change_stream_position: str | None
 
 
 class RetryPolicy(BaseModel):
@@ -173,7 +235,9 @@ class SearchRebuilder:
         batch_size: int = 100,
         retry_policy: RetryPolicy | None = None,
         set_live_target: Callable[[str | None], Awaitable[None]] | None = None,
-        wait_for_convergence: Callable[[str | None], Awaitable[RebuildConvergence]] | None = None,
+        capture_boundary: Callable[[], Awaitable[RebuildBoundary]] | None = None,
+        wait_for_convergence: Callable[[RebuildBoundary], Awaitable[RebuildConvergence]]
+        | None = None,
         before_verification: Callable[[str], Awaitable[None]] | None = None,
         now: Callable[[], datetime] = _utc_now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -193,6 +257,7 @@ class SearchRebuilder:
         self._batch_size = batch_size
         self._retry_policy = retry_policy or RetryPolicy()
         self._set_live_target = set_live_target or _noop_target
+        self._capture_boundary = capture_boundary
         self._wait_for_convergence = wait_for_convergence
         self._before_verification = before_verification
         self._now = now
@@ -231,20 +296,24 @@ class SearchRebuilder:
             record = await self._transition(record, RebuildPhase.BULK_INDEXING)
             await self._set_live_target(target_index)
             live_target_active = True
-            capture_high_water = getattr(self._source, "capture_high_water", None)
-            if callable(capture_high_water):
+            boundary = await self._capture_rebuild_boundary()
+            if boundary is not None:
                 try:
-                    source_high_water = await capture_high_water()
+                    record = await self._save_update(
+                        record.model_copy(
+                            update={
+                                "backfill_upper_bound": boundary.backfill_upper_bound,
+                                "change_stream_position": boundary.change_stream_position,
+                            }
+                        )
+                    )
                 except Exception:
-                    raise RebuildError("source_high_water_failed", transient=True) from None
-                record = await self._save_update(
-                    record.model_copy(update={"source_high_water": source_high_water})
-                )
+                    raise RebuildError("source_boundary_failed", transient=True) from None
             batch: list[Mapping[str, object]] = []
             scanned = 0
             indexed = 0
             failures: list[RebuildFailure] = []
-            async for event in self._scan_source(record.source_high_water):
+            async for event in self._scan_source(record.backfill_upper_bound):
                 scanned += 1
                 batch.append(project_search_document(event))
                 if len(batch) >= self._batch_size:
@@ -282,7 +351,16 @@ class SearchRebuilder:
             record = await self._transition(record, RebuildPhase.RECONCILING)
             if self._wait_for_convergence is not None:
                 try:
-                    convergence = await self._wait_for_convergence(record.source_high_water)
+                    boundary = RebuildBoundary(
+                        record.backfill_upper_bound, record.change_stream_position
+                    )
+                    try:
+                        convergence = await self._wait_for_convergence(boundary)
+                    except TypeError:
+                        # Compatibility for pre-watermark test/application
+                        # adapters; production wiring uses RebuildBoundary.
+                        legacy_wait = cast(Any, self._wait_for_convergence)
+                        convergence = await legacy_wait(boundary.backfill_upper_bound)
                 except RebuildError:
                     raise
                 except Exception:
@@ -290,9 +368,11 @@ class SearchRebuilder:
                 record = await self._save_update(
                     record.model_copy(
                         update={
-                            "source_high_water": convergence.source_high_water
-                            or record.source_high_water,
-                            "projector_checkpoint": convergence.projector_checkpoint,
+                            "backfill_upper_bound": convergence.backfill_upper_bound
+                            or record.backfill_upper_bound,
+                            "projector_change_stream_position": (
+                                convergence.projector_change_stream_position
+                            ),
                         }
                     )
                 )
@@ -300,7 +380,9 @@ class SearchRebuilder:
             record = await self._transition(record, RebuildPhase.VERIFYING)
             if self._before_verification is not None:
                 await self._before_verification(target_index)
-            identity_verified = await self._verify_identity(target_index, record.source_high_water)
+            identity_verified = await self._verify_identity(
+                target_index, record.backfill_upper_bound
+            )
             if failures or target_count < scanned or indexed != scanned or not identity_verified:
                 raise RebuildError("rebuild_verification_failed")
             record = await self._transition(record, RebuildPhase.SWAPPING)
@@ -448,13 +530,34 @@ class SearchRebuilder:
             expected_id = await anext(expected, None)
         return True
 
-    def _scan_source(self, high_water: str | None) -> AsyncIterator[CanonicalEvent]:
+    def _scan_source(self, backfill_upper_bound: str | None) -> AsyncIterator[CanonicalEvent]:
         try:
-            return self._source.scan(high_water=high_water)
+            return self._source.scan(backfill_upper_bound=backfill_upper_bound)
         except TypeError:
             # Preserve the small source protocol used by older test adapters;
             # production sources implement the explicit boundary argument.
-            return self._source.scan()
+            try:
+                return self._source.scan(high_water=backfill_upper_bound)  # type: ignore[call-arg]
+            except TypeError:
+                return self._source.scan()
+
+    async def _capture_rebuild_boundary(self) -> RebuildBoundary | None:
+        if self._capture_boundary is not None:
+            try:
+                return await self._capture_boundary()
+            except RebuildError:
+                raise
+            except Exception:
+                raise RebuildError("source_boundary_failed", transient=True) from None
+        capture_bound = getattr(self._source, "capture_backfill_upper_bound", None)
+        if not callable(capture_bound):
+            capture_bound = getattr(self._source, "capture_high_water", None)
+        if not callable(capture_bound):
+            return None
+        try:
+            return RebuildBoundary(await capture_bound(), None)
+        except Exception:
+            raise RebuildError("source_boundary_failed", transient=True) from None
 
     async def _renew_lease(self, record: RebuildRecord) -> bool:
         renew = getattr(self._state, "renew", None)

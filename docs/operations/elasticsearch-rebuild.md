@@ -11,9 +11,10 @@ uv run --locked python -m event_platform.cli search rebuild --confirm
 `{"status":"not_found"}`). The mutating `rebuild --confirm` command constructs
 the Mongo canonical source, projector, rebuild lease/state store, and Elasticsearch
 adapter itself. Run it only while the MongoDB replica set and Elasticsearch are
-reachable. It activates projector dual-write, captures a Mongo ObjectId high-water
-boundary, waits for projector convergence, verifies event identities, and swaps the
-stable alias with one Elasticsearch aliases request.
+reachable. It activates projector dual-write, captures a majority-consistent
+ObjectId backfill bound plus an ordered change-stream position, waits for the
+projector to converge through that position, verifies event identities, and swaps
+the stable alias with one Elasticsearch aliases request.
 
 ## Operator expectations
 
@@ -38,7 +39,7 @@ ELASTICSEARCH_URL='http://localhost:9200' \
 ```
 
 The lifecycle test pauses the first canonical backfill scan, writes D/E/F while
-the candidate is dual-written, proves the high-water/projector checkpoint
+the candidate is dual-written, proves the backfill-bound/change-stream-position
 convergence and identity set, observes one atomic alias swap, writes G after
 cutover, and exercises verification, alias-swap, and post-swap persistence
 failures. The test skips only when these explicitly supplied services are not

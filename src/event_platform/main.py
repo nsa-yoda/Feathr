@@ -48,7 +48,11 @@ from event_platform.search.elasticsearch import ElasticsearchProjectionWriter
 from event_platform.search.elasticsearch import create_client as create_elasticsearch_client
 from event_platform.search.elasticsearch_rebuild import ElasticsearchRebuildAdapter
 from event_platform.search.projection import SearchProjector
-from event_platform.search.rebuild import RebuildConvergence, SearchRebuilder
+from event_platform.search.rebuild import (
+    RebuildBoundary,
+    RebuildConvergence,
+    SearchRebuilder,
+)
 from event_platform.search.search import ElasticsearchSearchService, SearchClient
 from event_platform.storage.bootstrap import (
     SCHEMA_VERSION,
@@ -65,6 +69,14 @@ from event_platform.storage.projection_leases import MongoProjectionLeaseStore, 
 from event_platform.storage.rebuild_source import MongoRebuildSource
 from event_platform.storage.rebuilds import MongoRebuildStore
 from event_platform.worker.persistence import PersistenceWorker
+
+
+def _change_stream_position_at_or_after(current: str, boundary: str) -> bool:
+    try:
+        return tuple(map(int, current.split(":", 1))) >= tuple(map(int, boundary.split(":", 1)))
+    except (TypeError, ValueError):
+        return current >= boundary
+
 
 logger = logging.getLogger("event_platform.lifecycle")
 
@@ -382,31 +394,40 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 rebuild_source = MongoRebuildSource(event_collection)
                 app.state.search_projector = search_projector
 
+                async def capture_rebuild_boundary() -> RebuildBoundary:
+                    upper = await rebuild_source.capture_backfill_upper_bound()
+                    position = search_projector.change_stream_position()
+                    if upper is not None and position is None:
+                        deadline = (
+                            asyncio.get_running_loop().time()
+                            + app.state.settings.dependency_timeout_seconds * 12
+                        )
+                        while position is None:
+                            if asyncio.get_running_loop().time() >= deadline:
+                                raise RuntimeError("projection convergence timed out")
+                            await asyncio.sleep(0.05)
+                            position = search_projector.change_stream_position()
+                    return RebuildBoundary(upper, position)
+
                 async def wait_for_rebuild_convergence(
-                    initial: str | None,
+                    boundary: RebuildBoundary,
                 ) -> RebuildConvergence:
-                    boundary = await rebuild_source.capture_high_water()
-                    if boundary is None:
-                        return RebuildConvergence(
-                            source_high_water=initial,
-                            projector_checkpoint=initial,
-                        )
-                    marker = search_projector.checkpoint_marker()
-                    if marker is None and boundary == initial:
-                        return RebuildConvergence(
-                            source_high_water=boundary,
-                            projector_checkpoint=boundary,
-                        )
+                    token = search_projector.resume_token()
+                    latest = await source.latest_position(resume_after=token) if token else None
+                    target = latest or boundary.change_stream_position
                     deadline = (
                         asyncio.get_running_loop().time()
                         + app.state.settings.dependency_timeout_seconds * 12
                     )
                     while True:
-                        marker = search_projector.checkpoint_marker()
-                        if marker is not None and marker >= boundary:
+                        marker = search_projector.change_stream_position()
+                        if target is None or (
+                            marker is not None
+                            and _change_stream_position_at_or_after(marker, target)
+                        ):
                             return RebuildConvergence(
-                                source_high_water=boundary,
-                                projector_checkpoint=marker,
+                                backfill_upper_bound=boundary.backfill_upper_bound,
+                                projector_change_stream_position=marker,
                             )
                         if asyncio.get_running_loop().time() >= deadline:
                             raise RuntimeError("projection convergence timed out")
@@ -420,6 +441,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     source_collection=app.state.settings.mongo_collection,
                     alias=app.state.settings.elasticsearch_alias,
                     set_live_target=search_projector.set_target_index,
+                    capture_boundary=capture_rebuild_boundary,
                     wait_for_convergence=wait_for_rebuild_convergence,
                 )
 

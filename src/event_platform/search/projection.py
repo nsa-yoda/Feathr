@@ -71,7 +71,16 @@ class ProjectionCheckpoint:
     failure_code: str | None = None
     owner: str = "events-search"
     generation: int = 0
-    source_position: str | None = None
+    # Diagnostic event identity used for reconciliation; it is not a
+    # convergence watermark because ObjectIds can be allocated before commit.
+    event_object_id: str | None = None
+    change_stream_position: str | None = None
+
+    @property
+    def source_position(self) -> str | None:
+        """Deprecated name for the diagnostic ObjectId field."""
+
+        return self.event_object_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +97,8 @@ class ProjectionStatus:
 class ChangeStreamEvent:
     resume_token: Mapping[str, object]
     event: CanonicalEvent
-    source_position: str | None = None
+    event_object_id: str | None = None
+    change_stream_position: str | None = None
 
 
 class CheckpointPort(Protocol):
@@ -263,8 +273,10 @@ class SearchProjector:
                 last_projected_event_at=change.event.timestamp,
                 owner=self._owner,
                 generation=self._generation,
-                source_position=change.source_position
-                or (self._current.source_position if self._current else None),
+                event_object_id=change.event_object_id
+                or (self._current.event_object_id if self._current else None),
+                change_stream_position=change.change_stream_position
+                or (self._current.change_stream_position if self._current else None),
             )
             await self._checkpoint.save(checkpoint)
         except ProjectionError as error:
@@ -303,8 +315,10 @@ class SearchProjector:
                     last_projected_event_at=change.event.timestamp,
                     owner=self._owner,
                     generation=self._generation,
-                    source_position=change.source_position
-                    or (self._current.source_position if self._current else None),
+                    event_object_id=change.event_object_id
+                    or (self._current.event_object_id if self._current else None),
+                    change_stream_position=change.change_stream_position
+                    or (self._current.change_stream_position if self._current else None),
                 )
                 await self._checkpoint.save(checkpoint)
                 self._current = checkpoint
@@ -529,12 +543,22 @@ class SearchProjector:
     def source_position(self) -> str | None:
         """Return the latest canonical Mongo position acknowledged by this projector."""
 
-        return self._current.source_position if self._current is not None else None
+        return self._current.event_object_id if self._current is not None else None
 
     def checkpoint_marker(self) -> str | None:
-        """Return the durable source position used for rebuild convergence evidence."""
+        """Return the authoritative ordered change-stream convergence position."""
 
-        return self.source_position()
+        return self.change_stream_position()
+
+    def change_stream_position(self) -> str | None:
+        """Return the latest committed Mongo change-stream operation time."""
+
+        return self._current.change_stream_position if self._current is not None else None
+
+    def resume_token(self) -> Mapping[str, object] | None:
+        """Return the durable Mongo resume cursor for a rebuild fence."""
+
+        return dict(self._current.resume_token) if self._current is not None else None
 
     def _status_from_checkpoint(self, checkpoint: ProjectionCheckpoint) -> ProjectionStatus:
         now = self._now()

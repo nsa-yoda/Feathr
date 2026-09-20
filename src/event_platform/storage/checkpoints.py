@@ -65,9 +65,14 @@ class MongoProjectionCheckpointStore:
             generation_value = document.get("generation", 0)
             if not isinstance(generation_value, int) or generation_value < 0:
                 raise ValueError
-            source_position = document.get("source_position")
-            if source_position is not None and (
-                not isinstance(source_position, str) or len(source_position) > 128
+            event_object_id = document.get("event_object_id", document.get("source_position"))
+            if event_object_id is not None and (
+                not isinstance(event_object_id, str) or len(event_object_id) > 128
+            ):
+                raise ValueError
+            change_stream_position = document.get("change_stream_position")
+            if change_stream_position is not None and (
+                not isinstance(change_stream_position, str) or len(change_stream_position) > 64
             ):
                 raise ValueError
             return ProjectionCheckpoint(
@@ -79,7 +84,8 @@ class MongoProjectionCheckpointStore:
                 failure_code=failure_code,
                 owner=str(document.get("owner", projector)),
                 generation=generation_value,
-                source_position=source_position,
+                event_object_id=event_object_id,
+                change_stream_position=change_stream_position,
             )
         except (KeyError, TypeError, ValueError):
             raise ProjectionError("checkpoint_invalid") from None
@@ -112,7 +118,8 @@ class MongoProjectionCheckpointStore:
                     "failure_code": checkpoint.failure_code,
                     "owner": checkpoint.owner,
                     "generation": checkpoint.generation,
-                    "source_position": checkpoint.source_position,
+                    "event_object_id": checkpoint.event_object_id,
+                    "change_stream_position": checkpoint.change_stream_position,
                 },
                 upsert=True,
             )

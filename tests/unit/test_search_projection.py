@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
+from bson.timestamp import Timestamp
 from elastic_transport import TransportError
 from pymongo.errors import PyMongoError
 
@@ -95,6 +96,25 @@ class FakeWriter:
 
 def change(token: Mapping[str, object] | None = None) -> ChangeStreamEvent:
     return ChangeStreamEvent(token or {"_data": "resume-1"}, make_event())
+
+
+@pytest.mark.asyncio
+async def test_rebuild_marker_uses_change_stream_time_not_object_id() -> None:
+    checkpoint = FakeCheckpoint()
+    projector = SearchProjector(
+        projector="events-search", checkpoint=checkpoint, writer=FakeWriter([])
+    )
+    await projector.start()
+    await projector.project_change(
+        ChangeStreamEvent(
+            {"_data": "resume-1"},
+            make_event(),
+            event_object_id="ffffffffffffffffffffffff",
+            change_stream_position="100:7",
+        )
+    )
+    assert projector.checkpoint_marker() == "100:7"
+    assert projector.source_position() == "ffffffffffffffffffffffff"
 
 
 @pytest.mark.asyncio
@@ -694,6 +714,11 @@ class FakeStream:
             raise StopAsyncIteration
         return self.changes.pop(0)
 
+    async def try_next(self) -> Mapping[str, object] | None:
+        if not self.changes:
+            return None
+        return self.changes.pop(0)
+
 
 class StreamCollection:
     def __init__(self, stream: FakeStream) -> None:
@@ -721,14 +746,41 @@ async def test_change_stream_filters_inserts_and_decodes_canonical_event() -> No
         "idempotency_key_hash": None,
     }
     collection = StreamCollection(
-        FakeStream([{"_id": {"x": 1}, "operationType": "insert", "fullDocument": document}])
+        FakeStream(
+            [
+                {
+                    "_id": {"x": 1},
+                    "operationType": "insert",
+                    "clusterTime": Timestamp(10, 4),
+                    "fullDocument": document,
+                }
+            ]
+        )
     )
     source = MongoChangeStreamSource(collection)  # type: ignore[arg-type]
     items = [item async for item in source.stream(resume_after={"old": 1})]
     assert len(items) == 1
     assert items[0].event.event_id == event.event_id
+    assert items[0].change_stream_position == "10:4"
     assert collection.kwargs["resume_after"] == {"old": 1}
     assert collection.kwargs["pipeline"] == [{"$match": {"operationType": "insert"}}]
+
+
+@pytest.mark.asyncio
+async def test_change_stream_latest_position_is_an_ordered_operation_watermark() -> None:
+    collection = StreamCollection(
+        FakeStream(
+            [
+                {"_id": {"x": 1}, "clusterTime": Timestamp(10, 1)},
+                {"_id": {"x": 2}, "clusterTime": Timestamp(10, 3)},
+            ]
+        )
+    )
+    position = await MongoChangeStreamSource(collection).latest_position(
+        resume_after={"_data": "checkpoint"}
+    )  # type: ignore[arg-type]
+    assert position == "10:3"
+    assert collection.kwargs["max_await_time_ms"] == 0
 
 
 @pytest.mark.asyncio

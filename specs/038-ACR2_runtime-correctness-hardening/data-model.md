@@ -24,13 +24,14 @@ fencing_generation (monotonic)
 lease_expires_at / renewed_at
 
 checkpoint_id (unique _id)
-source_position
+event_object_id (diagnostic only; never the convergence watermark)
+change_stream_position (ordered Mongo operation-time watermark)
 owner_id
 fencing_generation
 updated_at
 ```
 
-Checkpoint updates require the current owner and generation and reject lower source positions.
+Checkpoint updates require the current owner and generation and reject lower change-stream positions; the event ObjectId is retained only for diagnostics and identity reconciliation.
 
 ## Storage manifest additions
 

@@ -16,7 +16,12 @@ from event_platform.search.bootstrap import ensure_search_alias
 from event_platform.search.elasticsearch import ElasticsearchProjectionWriter, create_client
 from event_platform.search.elasticsearch_rebuild import ElasticsearchRebuildAdapter
 from event_platform.search.projection import SearchProjector
-from event_platform.search.rebuild import RebuildConvergence, RebuildError, SearchRebuilder
+from event_platform.search.rebuild import (
+    RebuildBoundary,
+    RebuildConvergence,
+    RebuildError,
+    SearchRebuilder,
+)
 from event_platform.storage.change_stream import MongoChangeStreamSource
 from event_platform.storage.checkpoints import MongoProjectionCheckpointStore
 from event_platform.storage.projection_leases import MongoProjectionLeaseStore, ProjectionLeaseError
@@ -27,7 +32,12 @@ from event_platform.storage.rebuilds import MongoRebuildStore
 def _at_or_after(current: str | None, boundary: str | None) -> bool:
     if boundary is None:
         return True
-    return current is not None and current >= boundary
+    if current is None:
+        return False
+    try:
+        return tuple(map(int, current.split(":", 1))) >= tuple(map(int, boundary.split(":", 1)))
+    except (TypeError, ValueError):
+        return current >= boundary
 
 
 @asynccontextmanager
@@ -84,36 +94,35 @@ async def configured_rebuild_runtime(
         change_source = MongoChangeStreamSource(events)
         projector_task = asyncio.create_task(projector.run_source(change_source))
 
-        async def wait_for_convergence(initial: str | None) -> RebuildConvergence:
-            boundary = await source.capture_high_water()
-            if boundary is None:
-                return RebuildConvergence(source_high_water=initial, projector_checkpoint=initial)
-            marker = projector.checkpoint_marker()
-            if marker is None and boundary == initial:
-                # Existing canonical history is covered by the candidate
-                # backfill. A change-stream marker is required only when new
-                # events arrived after the captured boundary.
-                return RebuildConvergence(
-                    source_high_water=boundary,
-                    projector_checkpoint=boundary,
+        async def capture_boundary() -> RebuildBoundary:
+            upper = await source.capture_backfill_upper_bound()
+            position = projector.change_stream_position()
+            if upper is not None and position is None:
+                deadline = (
+                    asyncio.get_running_loop().time() + settings.dependency_timeout_seconds * 12
                 )
+                while position is None:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        raise RebuildError("projection_convergence_timeout", transient=True)
+                    await asyncio.sleep(0.05)
+                    position = projector.change_stream_position()
+            return RebuildBoundary(upper, position)
+
+        async def wait_for_convergence(boundary: RebuildBoundary) -> RebuildConvergence:
+            token = projector.resume_token()
+            latest = await change_source.latest_position(resume_after=token) if token else None
+            target = latest or boundary.change_stream_position
+            if target is None:
+                return RebuildConvergence(backfill_upper_bound=boundary.backfill_upper_bound)
             deadline = asyncio.get_running_loop().time() + settings.dependency_timeout_seconds * 12
             while True:
-                marker = projector.checkpoint_marker()
-                if _at_or_after(marker, boundary):
+                marker = projector.change_stream_position()
+                if _at_or_after(marker, target):
                     return RebuildConvergence(
-                        source_high_water=boundary,
-                        projector_checkpoint=marker,
+                        backfill_upper_bound=boundary.backfill_upper_bound,
+                        projector_change_stream_position=marker,
                     )
                 if asyncio.get_running_loop().time() >= deadline:
-                    # The candidate backfill itself covers canonical events
-                    # without a prior change-stream checkpoint. The marker is
-                    # retained as the explicit candidate convergence proof.
-                    if marker is None:
-                        return RebuildConvergence(
-                            source_high_water=boundary,
-                            projector_checkpoint=boundary,
-                        )
                     raise RebuildError("projection_convergence_timeout", transient=True)
                 await asyncio.sleep(0.05)
 
@@ -125,6 +134,7 @@ async def configured_rebuild_runtime(
             source_collection=settings.mongo_collection,
             alias=settings.elasticsearch_alias,
             set_live_target=projector.set_target_index,
+            capture_boundary=capture_boundary,
             wait_for_convergence=wait_for_convergence,
         )
         yield rebuilder
