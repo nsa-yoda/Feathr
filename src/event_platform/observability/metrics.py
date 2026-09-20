@@ -357,9 +357,7 @@ class MetricsRegistry:
             gauges = dict(self._gauges)
         lines: list[str] = []
         for family_name, help_text in families.items():
-            lines.extend(
-                (f"# HELP {family_name} {help_text}", f"# TYPE {family_name} counter")
-            )
+            lines.extend((f"# HELP {family_name} {help_text}", f"# TYPE {family_name} counter"))
             for (metric, labels), count in sorted(counts.items()):
                 if metric != family_name:
                     continue
@@ -383,14 +381,14 @@ class MetricsRegistry:
                 bucket_counts = state["buckets"]
                 assert isinstance(bucket_counts, list)
                 for boundary, count in zip(buckets, bucket_counts, strict=True):
-                    bucket_labels = (('le', _format_number(boundary)),)
+                    bucket_labels = (("le", _format_number(boundary)),)
                     lines.append(
                         f"{histogram_name}_bucket{_format_labels(labels, bucket_labels)} {count}"
                     )
                 lines.append(
-                    f'{histogram_name}_bucket'
-                    f'{_format_labels(labels, (("le", "+Inf"),))} '
-                    f'{state["count"]}'
+                    f"{histogram_name}_bucket"
+                    f"{_format_labels(labels, (('le', '+Inf'),))} "
+                    f"{state['count']}"
                 )
                 lines.append(f"{histogram_name}_count{_format_labels(labels)} {state['count']}")
                 lines.append(
@@ -414,9 +412,7 @@ class MetricsRegistry:
             )
             for (metric, labels), value in sorted(gauges.items()):
                 if metric == gauge_name:
-                    lines.append(
-                        f"{gauge_name}{_format_labels(labels)} {_format_number(value)}"
-                    )
+                    lines.append(f"{gauge_name}{_format_labels(labels)} {_format_number(value)}")
         return "\n".join(lines) + "\n"
 
 

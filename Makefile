@@ -54,6 +54,6 @@ rebuild-status:
 	uv run --locked python -m event_platform.cli search rebuild-status
 
 rebuild-demo:
-	@echo 'Guarded rebuild command (requires the application dependency harness):'
+	@echo 'Guarded rebuild command (requires MongoDB replica set and Elasticsearch):'
 	@echo 'uv run --locked python -m event_platform.cli search rebuild --confirm'
 	@echo 'Use make rebuild-status to inspect the latest durable state.'

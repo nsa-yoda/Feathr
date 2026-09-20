@@ -11,7 +11,7 @@
 - A lease is owner-bound, expires after a bounded duration, and may be acquired by a later run after expiry without changing the serving alias.
 - Live dual-write target activation is an explicit callback into the Feature 010 projector; activation happens before the bulk scan and is cleared on every terminal path.
 - Bulk failures are classified as transient or permanent. Transient failures receive bounded retries; any unresolved failure prevents alias swap.
-- Verification requires target count equal to the scanned canonical count and zero unresolved failures. The old generation is retained until a configured rollback deadline.
+- Verification requires zero unresolved failures, a target count no lower than the scanned canonical count, persisted high-water/projector convergence, and identity reconciliation for every canonical event through the boundary. The old generation is retained until a configured rollback deadline.
 - The reviewer CLI exposes status and a guarded rebuild command contract; the HTTP API remains read-only for rebuild status.
 
 ## User Scenarios & Testing
@@ -53,11 +53,11 @@ As a reviewer, I need a read-only status endpoint and documented CLI command to 
 - **FR-003**: The service MUST create the next versioned physical index with the Feature 011 mapping/settings before activation.
 - **FR-004**: The service MUST activate live dual-write before scanning canonical Mongo and clear it on all terminal paths.
 - **FR-005**: The service MUST bulk-index canonical events with bounded transient retries and safe failure recording.
-- **FR-006**: The service MUST reconcile and verify target count against scanned count with zero unresolved failures before swapping.
+- **FR-006**: The service MUST capture a durable canonical high-water boundary, reconcile projector progress through that boundary, verify target count is not below the canonical scan count, and identity-reconcile every canonical event through the boundary with zero unresolved failures before swapping.
 - **FR-007**: The service MUST atomically remove the old alias target and add the new target in one aliases operation.
 - **FR-008**: The service MUST retain the old generation until a configured rollback deadline and never swap a failed/unverified target.
 - **FR-009**: The service MUST expose read-only rebuild status and a documented guarded CLI command; no unprotected rebuild HTTP action is allowed.
-- **FR-010**: Tests MUST cover success, live dual-write, alias failure safety, stale lease recovery, count/failure verification, status, and CLI behavior.
+- **FR-010**: Tests MUST cover success with writes during a deterministic backfill barrier, high-water/projector convergence, identity verification, atomic alias behavior, post-cutover projection, alias failure safety, stale lease recovery, count/failure verification, status, and executable CLI behavior.
 
 ## Key Entities
 

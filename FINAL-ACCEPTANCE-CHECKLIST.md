@@ -8,7 +8,7 @@
 - [x] 202/local queue durability caveat is explicit.
 - [x] at-least-once + idempotency behavior is tested.
 - [x] no positive exactly-once guarantee appears anywhere; negative limitation wording is retained.
-- [ ] online ES rebuild works with live writes and atomic alias swap (service-backed lifecycle evidence remains required).
+- [x] online ES rebuild works with live writes and atomic alias swap (service-backed lifecycle evidence recorded below).
 - [x] rate limiting is implemented with Redis and local fallback.
 
 ## Required endpoints
@@ -52,4 +52,4 @@
 
 ## Evidence conditions
 
-Static, unit, failure, and contract evidence is checked in the feature reports and `CODEX_WORK.LOG`. Integration selection currently records 11 explicit skips because the test runner is not configured with direct external endpoint variables; this is not service-backed integration evidence. Clean Compose smoke and the Postman demo are verified on the local Colima context. The online rebuild remains unchecked until its live-write and atomic-alias-swap scenario is run.
+Static, unit, failure, and contract evidence is checked in the feature reports and `CODEX_WORK.LOG`. The dedicated service-backed rebuild acceptance was executed on 2026-09-20 against the Compose MongoDB replica set and Elasticsearch using `MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' ELASTICSEARCH_URL='http://127.0.0.1:9200' .venv/bin/pytest -q tests/integration/test_rebuild_live.py`: 2 passed. It deterministically held the backfill, inserted D/E/F during candidate dual-write, proved high-water/projector convergence and identity coverage, observed one atomic alias swap, inserted G after cutover, and passed verification, alias-swap, and post-swap persistence failure cases. The executable guarded CLI was also run against a uniquely isolated real Mongo/Elasticsearch namespace and completed successfully. The checklist item is checked only on this evidence; the broader integration collection still has unrelated legacy cleanup/API compatibility failures documented in `CODEX_WORK.LOG`.

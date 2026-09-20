@@ -58,10 +58,11 @@ make rebuild-status
 make rebuild-demo
 ```
 
-`make rebuild-demo` prints the guarded rebuild command and its dependency-harness
-requirement; use `make rebuild-status` for a read-only check. The direct CLI
-forms are `uv run --locked python -m event_platform.cli search rebuild-status`
-and `uv run --locked python -m event_platform.cli search rebuild --confirm`.
+`make rebuild-demo` prints the guarded, executable online rebuild command. It
+requires the Compose MongoDB replica set and Elasticsearch services; use
+`make rebuild-status` for a read-only check. The direct CLI forms are
+`uv run --locked python -m event_platform.cli search rebuild-status` and
+`uv run --locked python -m event_platform.cli search rebuild --confirm`.
 
 CI uses Python 3.12, a pinned uv release, and `uv.lock` with `--locked`
 resolution.
@@ -245,7 +246,7 @@ and hosted CI remain live gates that require their respective environments.
 
 ## Integration lifecycles
 
-Feature 019's lifecycle scenarios use real MongoDB, Elasticsearch, and Redis endpoints supplied through `MONGO_URI`, `ELASTICSEARCH_URL`, and `REDIS_URL`. The feature covers HTTP ingestion to canonical query, Mongo change-stream projection to search, analytics grouping, realtime cache miss/hit, duplicate redelivery, and online rebuild continuity. Run `make test-integration`; missing or unavailable services are explicit skips, not passing evidence. Feature 019 scenarios use unique namespaces, bounded poll-until assertions, and cleanup in `finally` blocks.
+Feature 019's lifecycle scenarios use real MongoDB, Elasticsearch, and Redis endpoints supplied through `MONGO_URI`, `ELASTICSEARCH_URL`, and `REDIS_URL`. The feature covers HTTP ingestion to canonical query, Mongo change-stream projection to search, analytics grouping, realtime cache miss/hit, duplicate redelivery, and the online rebuild continuity scenario. Run `make test-integration` for collection and `MONGO_URI=... ELASTICSEARCH_URL=... .venv/bin/pytest -q tests/integration/test_rebuild_live.py` for the required service-backed rebuild evidence. Missing or unavailable services are explicit skips, not passing evidence. Feature 019 scenarios use unique namespaces, deterministic barriers, bounded poll-until assertions, and cleanup in `finally` blocks.
 
 Feature 020's deterministic failure selection runs without external endpoints:
 `make test-failure` currently passes 29 tests. See the [failure-suite

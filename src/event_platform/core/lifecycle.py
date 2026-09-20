@@ -240,9 +240,7 @@ class LifecycleSupervisor:
                         "state": self._state,
                         "drain_duration_seconds": round(time.monotonic() - drain_started, 3),
                         "pending_tasks": tuple(
-                            sorted(
-                                name for name, task in self._tasks.items() if task in pending
-                            )
+                            sorted(name for name, task in self._tasks.items() if task in pending)
                         ),
                     },
                 )

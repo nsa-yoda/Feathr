@@ -59,7 +59,9 @@ def _decode_change(change: Mapping[str, object]) -> ChangeStreamEvent:
     if not isinstance(token, Mapping) or not isinstance(document, Mapping):
         raise MalformedChange()
     try:
-        return ChangeStreamEvent(dict(token), event_from_document(document))
+        source_id = document.get("_id")
+        source_position = str(source_id) if source_id is not None else None
+        return ChangeStreamEvent(dict(token), event_from_document(document), source_position)
     except (KeyError, TypeError, ValueError, MongoDependencyError):
         raise MalformedChange() from None
 

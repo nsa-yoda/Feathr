@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field
 from pymongo import AsyncMongoClient
 
+from event_platform.core.logging import configure_logging
 from event_platform.core.settings import SettingsStartupError, load_settings
 from event_platform.domain.events import CanonicalEvent
 from event_platform.search.mapping import (
@@ -43,6 +44,9 @@ SAFE_REBUILD_ERROR_CODES = frozenset(
         "rebuild_lease_unavailable",
         "rebuild_unexpected_failure",
         "rebuild_verification_failed",
+        "source_high_water_failed",
+        "projection_convergence_timeout",
+        "rebuild_state_persist_failed",
     }
 )
 
@@ -56,6 +60,7 @@ class RebuildPhase(StrEnum):
     SWAPPING = "swapping"
     COMPLETED = "completed"
     FAILED = "failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
 
 
 class RebuildError(RuntimeError):
@@ -108,6 +113,8 @@ class RebuildLeaseStore(Protocol):
 
     async def get(self, rebuild_id: UUID) -> RebuildRecord | None: ...
 
+    async def fencing_token(self, rebuild_id: UUID, owner: str) -> int | None: ...
+
 
 class RebuildSearchPort(Protocol):
     async def resolve_alias(self, alias: str) -> str | None: ...
@@ -118,13 +125,24 @@ class RebuildSearchPort(Protocol):
 
     async def count(self, index: str) -> int: ...
 
+    def iter_event_ids(self, index: str) -> AsyncIterator[str]: ...
+
     async def swap_alias(self, alias: str, old_index: str | None, new_index: str) -> None: ...
 
     async def delete_index(self, index: str) -> None: ...
 
 
 class CanonicalEventSource(Protocol):
-    def scan(self) -> AsyncIterator[CanonicalEvent]: ...
+    async def capture_high_water(self) -> str | None: ...
+
+    def scan(self, *, high_water: str | None = None) -> AsyncIterator[CanonicalEvent]: ...
+
+
+class RebuildConvergence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_high_water: str | None = Field(default=None, max_length=256)
+    projector_checkpoint: str | None = Field(default=None, max_length=256)
 
 
 class RetryPolicy(BaseModel):
@@ -155,6 +173,8 @@ class SearchRebuilder:
         batch_size: int = 100,
         retry_policy: RetryPolicy | None = None,
         set_live_target: Callable[[str | None], Awaitable[None]] | None = None,
+        wait_for_convergence: Callable[[str | None], Awaitable[RebuildConvergence]] | None = None,
+        before_verification: Callable[[str], Awaitable[None]] | None = None,
         now: Callable[[], datetime] = _utc_now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -173,6 +193,8 @@ class SearchRebuilder:
         self._batch_size = batch_size
         self._retry_policy = retry_policy or RetryPolicy()
         self._set_live_target = set_live_target or _noop_target
+        self._wait_for_convergence = wait_for_convergence
+        self._before_verification = before_verification
         self._now = now
         self._sleep = sleep
         self._alias_swapped = False
@@ -196,6 +218,12 @@ class SearchRebuilder:
         )
         if not await self._state.acquire(record):
             raise RebuildError("rebuild_lease_unavailable", transient=True)
+        fencing_token = getattr(self._state, "fencing_token", None)
+        if callable(fencing_token):
+            token = await fencing_token(record.rebuild_id, record.owner)
+            if token is None:
+                raise RebuildError("rebuild_lease_lost")
+            record = record.model_copy(update={"fencing_token": token})
         live_target_active = False
         try:
             record = await self._transition(record, RebuildPhase.INDEX_CREATING)
@@ -203,11 +231,20 @@ class SearchRebuilder:
             record = await self._transition(record, RebuildPhase.BULK_INDEXING)
             await self._set_live_target(target_index)
             live_target_active = True
+            capture_high_water = getattr(self._source, "capture_high_water", None)
+            if callable(capture_high_water):
+                try:
+                    source_high_water = await capture_high_water()
+                except Exception:
+                    raise RebuildError("source_high_water_failed", transient=True) from None
+                record = await self._save_update(
+                    record.model_copy(update={"source_high_water": source_high_water})
+                )
             batch: list[Mapping[str, object]] = []
             scanned = 0
             indexed = 0
             failures: list[RebuildFailure] = []
-            async for event in self._source.scan():
+            async for event in self._scan_source(record.source_high_water):
                 scanned += 1
                 batch.append(project_search_document(event))
                 if len(batch) >= self._batch_size:
@@ -226,6 +263,9 @@ class SearchRebuilder:
                     await self._state.save(record)
                     if not await self._renew_lease(record):
                         raise RebuildError("rebuild_lease_lost")
+                    record = record.model_copy(
+                        update={"lease_expires_at": self._now() + self._lease_duration}
+                    )
                     self._emit(record, "search_rebuild.bulk_progress")
             if batch:
                 count, batch_failures = await self._bulk_with_retry(target_index, batch)
@@ -240,9 +280,28 @@ class SearchRebuilder:
                 }
             )
             record = await self._transition(record, RebuildPhase.RECONCILING)
+            if self._wait_for_convergence is not None:
+                try:
+                    convergence = await self._wait_for_convergence(record.source_high_water)
+                except RebuildError:
+                    raise
+                except Exception:
+                    raise RebuildError("projection_convergence_timeout", transient=True) from None
+                record = await self._save_update(
+                    record.model_copy(
+                        update={
+                            "source_high_water": convergence.source_high_water
+                            or record.source_high_water,
+                            "projector_checkpoint": convergence.projector_checkpoint,
+                        }
+                    )
+                )
             target_count = await self._search.count(target_index)
             record = await self._transition(record, RebuildPhase.VERIFYING)
-            if failures or target_count != scanned or indexed != scanned:
+            if self._before_verification is not None:
+                await self._before_verification(target_index)
+            identity_verified = await self._verify_identity(target_index, record.source_high_water)
+            if failures or target_count < scanned or indexed != scanned or not identity_verified:
                 raise RebuildError("rebuild_verification_failed")
             record = await self._transition(record, RebuildPhase.SWAPPING)
             await self._search.swap_alias(self._alias, old_index, target_index)
@@ -255,7 +314,33 @@ class SearchRebuilder:
                     "rollback_until": completed + self._rollback_retention,
                 }
             )
-            await self._state.save(record)
+            try:
+                await self._state.save(record)
+            except Exception as error:
+                # The alias commit is already durable. Preserve that fact in
+                # the durable record when possible; generic failure cleanup
+                # must never delete the newly serving generation.
+                uncertain = record.model_copy(
+                    update={
+                        "phase": RebuildPhase.RECONCILIATION_REQUIRED,
+                        "failures": tuple(
+                            (*record.failures, RebuildFailure(code="rebuild_state_persist_failed"))
+                        )[-32:],
+                        "failure_count": record.failure_count + 1,
+                    }
+                )
+                try:
+                    await self._state.save(uncertain)
+                except Exception as persist_error:
+                    logger.error(
+                        "post-swap rebuild state persistence failed",
+                        extra={
+                            "event": "search_rebuild.post_swap_state_persist_failed",
+                            "error_type": type(persist_error).__name__,
+                        },
+                    )
+                self._emit(uncertain, "search_rebuild.reconciliation_required")
+                raise error
             self._emit(record, "search_rebuild.completed")
             return record
         except RebuildError as error:
@@ -280,6 +365,30 @@ class SearchRebuilder:
     async def _record_failure(
         self, record: RebuildRecord, target_index: str, failure_code: str
     ) -> None:
+        if self._alias_swapped:
+            # A committed alias cannot be rolled back by generic cleanup. The
+            # durable state is explicitly uncertain until an operator resumes
+            # or reconciles it.
+            uncertain = record.model_copy(
+                update={
+                    "phase": RebuildPhase.RECONCILIATION_REQUIRED,
+                    "completed_at": self._now(),
+                    "failures": tuple((*record.failures, RebuildFailure(code=failure_code)))[-32:],
+                    "failure_count": record.failure_count + 1,
+                }
+            )
+            try:
+                await self._state.save(uncertain)
+            except Exception as error:
+                logger.error(
+                    "post-swap rebuild reconciliation persistence failed",
+                    extra={
+                        "event": "search_rebuild.reconciliation_state_persist_failed",
+                        "error_type": type(error).__name__,
+                    },
+                )
+            self._emit(uncertain, "search_rebuild.reconciliation_required")
+            return
         failed = record.model_copy(
             update={
                 "phase": RebuildPhase.FAILED,
@@ -300,8 +409,6 @@ class SearchRebuilder:
             )
         self._emit(failed, "search_rebuild.failed")
         delete_index = getattr(self._search, "delete_index", None)
-        if self._alias_swapped:
-            return
         if delete_index is None:
             return
         try:
@@ -320,6 +427,34 @@ class SearchRebuilder:
         await self._state.save(updated)
         self._emit(updated, f"search_rebuild.{phase.value}")
         return updated
+
+    async def _save_update(self, record: RebuildRecord) -> RebuildRecord:
+        await self._state.save(record)
+        return record
+
+    async def _verify_identity(self, target_index: str, high_water: str | None) -> bool:
+        iterator = getattr(self._search, "iter_event_ids", None)
+        if not callable(iterator):
+            return True
+        expected = self._scan_source(high_water)
+        actual = iterator(target_index)
+        expected_id = await anext(expected, None)
+        actual_id = await anext(actual, None)
+        while expected_id is not None:
+            while actual_id is not None and actual_id < str(expected_id.event_id):
+                actual_id = await anext(actual, None)
+            if actual_id != str(expected_id.event_id):
+                return False
+            expected_id = await anext(expected, None)
+        return True
+
+    def _scan_source(self, high_water: str | None) -> AsyncIterator[CanonicalEvent]:
+        try:
+            return self._source.scan(high_water=high_water)
+        except TypeError:
+            # Preserve the small source protocol used by older test adapters;
+            # production sources implement the explicit boundary argument.
+            return self._source.scan()
 
     async def _renew_lease(self, record: RebuildRecord) -> bool:
         renew = getattr(self._state, "renew", None)
@@ -398,7 +533,56 @@ def main(argv: Sequence[str] | None = None) -> int:
             build_parser().print_help()
             return 0
         return asyncio.run(_status_command(args.rebuild_id))
-    raise SystemExit("rebuild execution requires the application dependency harness")
+    return asyncio.run(_run_command())
+
+
+async def _run_command() -> int:
+    """Run through the real Mongo, projector, and Elasticsearch graph."""
+
+    try:
+        settings = load_settings()
+    except SettingsStartupError:
+        logger.error(
+            "rebuild run configuration failed",
+            extra={"event": "search_rebuild.run_configuration_failed"},
+        )
+        return 2
+    configure_logging(settings.log_level)
+    if settings.mongo_url is None or settings.elasticsearch_url is None:
+        logger.error(
+            "rebuild run requires MongoDB and Elasticsearch",
+            extra={
+                "event": "search_rebuild.run_configuration_failed",
+                "classification": "canonical_or_projection_dependency_missing",
+            },
+        )
+        return 2
+    from event_platform.search.rebuild_runtime import configured_rebuild_runtime
+
+    try:
+        async with configured_rebuild_runtime(settings) as rebuilder:
+            record = await rebuilder.run()
+    except RebuildError as error:
+        logger.error(
+            "search rebuild failed",
+            extra={
+                "event": "search_rebuild.run_failed",
+                "failure_code": error.code,
+                "transient": error.transient,
+            },
+        )
+        return 1
+    except Exception as error:
+        logger.error(
+            "search rebuild failed",
+            extra={
+                "event": "search_rebuild.run_failed",
+                "error_type": type(error).__name__,
+            },
+        )
+        return 1
+    print(json.dumps(record.model_dump(mode="json"), sort_keys=True))
+    return 0
 
 
 async def _status_command(rebuild_id: str | None) -> int:

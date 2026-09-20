@@ -71,6 +71,7 @@ class ProjectionCheckpoint:
     failure_code: str | None = None
     owner: str = "events-search"
     generation: int = 0
+    source_position: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +88,7 @@ class ProjectionStatus:
 class ChangeStreamEvent:
     resume_token: Mapping[str, object]
     event: CanonicalEvent
+    source_position: str | None = None
 
 
 class CheckpointPort(Protocol):
@@ -261,6 +263,8 @@ class SearchProjector:
                 last_projected_event_at=change.event.timestamp,
                 owner=self._owner,
                 generation=self._generation,
+                source_position=change.source_position
+                or (self._current.source_position if self._current else None),
             )
             await self._checkpoint.save(checkpoint)
         except ProjectionError as error:
@@ -299,6 +303,8 @@ class SearchProjector:
                     last_projected_event_at=change.event.timestamp,
                     owner=self._owner,
                     generation=self._generation,
+                    source_position=change.source_position
+                    or (self._current.source_position if self._current else None),
                 )
                 await self._checkpoint.save(checkpoint)
                 self._current = checkpoint
@@ -519,6 +525,16 @@ class SearchProjector:
     def status(self) -> ProjectionStatus:
         self._record_lag()
         return self._status
+
+    def source_position(self) -> str | None:
+        """Return the latest canonical Mongo position acknowledged by this projector."""
+
+        return self._current.source_position if self._current is not None else None
+
+    def checkpoint_marker(self) -> str | None:
+        """Return the durable source position used for rebuild convergence evidence."""
+
+        return self.source_position()
 
     def _status_from_checkpoint(self, checkpoint: ProjectionCheckpoint) -> ProjectionStatus:
         now = self._now()

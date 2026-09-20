@@ -78,12 +78,8 @@ def test_metrics_registry_rejects_unknown_families_and_normalizes_methods() -> N
 
 def test_metrics_registry_histograms_and_gauges_are_bounded_and_current() -> None:
     registry = MetricsRegistry()
-    registry.observe_http(
-        method="GET", path="/events/search", status=200, duration_seconds=0.02
-    )
-    registry.observe_histogram(
-        "event_platform_request_latency_seconds", 2.0, {"route": "search"}
-    )
+    registry.observe_http(method="GET", path="/events/search", status=200, duration_seconds=0.02)
+    registry.observe_histogram("event_platform_request_latency_seconds", 2.0, {"route": "search"})
     registry.set_gauge("event_platform_queue_depth", 7)
     registry.set_gauge("event_platform_queue_depth", 2)
 
@@ -92,8 +88,8 @@ def test_metrics_registry_histograms_and_gauges_are_bounded_and_current() -> Non
     assert 'event_platform_request_latency_seconds_bucket{le="0.025",route="search"} 1' in rendered
     assert 'event_platform_request_latency_seconds_bucket{le="+Inf",route="search"} 2' in rendered
     assert 'event_platform_request_latency_seconds_max{route="search"} 2' in rendered
-    assert 'event_platform_queue_depth 2' in rendered
-    assert 'event_platform_queue_depth 7' not in rendered
+    assert "event_platform_queue_depth 2" in rendered
+    assert "event_platform_queue_depth 7" not in rendered
 
     with pytest.raises(ValueError):
         registry.observe_histogram(

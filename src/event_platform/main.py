@@ -46,7 +46,9 @@ from event_platform.rate_limit.service import RateLimiter
 from event_platform.search.bootstrap import ensure_search_alias
 from event_platform.search.elasticsearch import ElasticsearchProjectionWriter
 from event_platform.search.elasticsearch import create_client as create_elasticsearch_client
+from event_platform.search.elasticsearch_rebuild import ElasticsearchRebuildAdapter
 from event_platform.search.projection import SearchProjector
+from event_platform.search.rebuild import RebuildConvergence, SearchRebuilder
 from event_platform.search.search import ElasticsearchSearchService, SearchClient
 from event_platform.storage.bootstrap import (
     SCHEMA_VERSION,
@@ -60,6 +62,7 @@ from event_platform.storage.checkpoints import MongoProjectionCheckpointStore
 from event_platform.storage.idempotency import InMemoryIdempotencyRegistry, MongoIdempotencyRegistry
 from event_platform.storage.mongo import MongoEventStore
 from event_platform.storage.projection_leases import MongoProjectionLeaseStore, ProjectionLeaseError
+from event_platform.storage.rebuild_source import MongoRebuildSource
 from event_platform.storage.rebuilds import MongoRebuildStore
 from event_platform.worker.persistence import PersistenceWorker
 
@@ -125,6 +128,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             app.state.mongo_ready = False
             app.state.persistence_worker_ready = False
             app.state.search_projector = None
+            app.state.rebuilder = None
 
             async def mongo_probe() -> bool:
                 if mongo_client is None:
@@ -375,7 +379,49 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     metrics=app.state.metrics,
                 )
                 source = MongoChangeStreamSource(event_collection)
+                rebuild_source = MongoRebuildSource(event_collection)
                 app.state.search_projector = search_projector
+
+                async def wait_for_rebuild_convergence(
+                    initial: str | None,
+                ) -> RebuildConvergence:
+                    boundary = await rebuild_source.capture_high_water()
+                    if boundary is None:
+                        return RebuildConvergence(
+                            source_high_water=initial,
+                            projector_checkpoint=initial,
+                        )
+                    marker = search_projector.checkpoint_marker()
+                    if marker is None and boundary == initial:
+                        return RebuildConvergence(
+                            source_high_water=boundary,
+                            projector_checkpoint=boundary,
+                        )
+                    deadline = (
+                        asyncio.get_running_loop().time()
+                        + app.state.settings.dependency_timeout_seconds * 12
+                    )
+                    while True:
+                        marker = search_projector.checkpoint_marker()
+                        if marker is not None and marker >= boundary:
+                            return RebuildConvergence(
+                                source_high_water=boundary,
+                                projector_checkpoint=marker,
+                            )
+                        if asyncio.get_running_loop().time() >= deadline:
+                            raise RuntimeError("projection convergence timed out")
+                        await asyncio.sleep(0.05)
+
+                app.state.rebuilder = SearchRebuilder(
+                    state=app.state.rebuild_store,
+                    search=ElasticsearchRebuildAdapter(elasticsearch_client),
+                    source=rebuild_source,
+                    owner=f"api-rebuild-{uuid4().hex}",
+                    source_collection=app.state.settings.mongo_collection,
+                    alias=app.state.settings.elasticsearch_alias,
+                    set_live_target=search_projector.set_target_index,
+                    wait_for_convergence=wait_for_rebuild_convergence,
+                )
 
                 async def run_search_projector(stop_event: asyncio.Event) -> None:
                     lease = await lease_store.acquire(
@@ -512,6 +558,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 del app.state.realtime_stats_service
             del app.state.event_store
             del app.state.search_projector
+            del app.state.rebuilder
             del app.state.metrics
             del app.state.health
 

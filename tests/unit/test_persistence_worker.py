@@ -95,8 +95,7 @@ async def test_worker_metrics_record_processing_latency_and_activity() -> None:
     assert await worker.process_once()
     rendered = metrics.render()
     assert (
-        'event_platform_worker_processing_latency_seconds_count{operation="process"} 1'
-        in rendered
+        'event_platform_worker_processing_latency_seconds_count{operation="process"} 1' in rendered
     )
     assert 'event_platform_worker_operations_total{outcome="inserted"} 1' in rendered
 

@@ -65,6 +65,11 @@ class MongoProjectionCheckpointStore:
             generation_value = document.get("generation", 0)
             if not isinstance(generation_value, int) or generation_value < 0:
                 raise ValueError
+            source_position = document.get("source_position")
+            if source_position is not None and (
+                not isinstance(source_position, str) or len(source_position) > 128
+            ):
+                raise ValueError
             return ProjectionCheckpoint(
                 projector=projector,
                 resume_token=dict(token),
@@ -74,6 +79,7 @@ class MongoProjectionCheckpointStore:
                 failure_code=failure_code,
                 owner=str(document.get("owner", projector)),
                 generation=generation_value,
+                source_position=source_position,
             )
         except (KeyError, TypeError, ValueError):
             raise ProjectionError("checkpoint_invalid") from None
@@ -106,6 +112,7 @@ class MongoProjectionCheckpointStore:
                     "failure_code": checkpoint.failure_code,
                     "owner": checkpoint.owner,
                     "generation": checkpoint.generation,
+                    "source_position": checkpoint.source_position,
                 },
                 upsert=True,
             )

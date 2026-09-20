@@ -89,6 +89,14 @@ class FakeSearch:
     async def count(self, index: str) -> int:
         return sum(len(batch) for target, batch in self.batches if target == index)
 
+    async def iter_event_ids(self, index: str) -> AsyncIterator[str]:
+        for target, batch in self.batches:
+            if target == index:
+                for document in batch:
+                    event_id = document.get("event_id")
+                    assert isinstance(event_id, str)
+                    yield event_id
+
     async def swap_alias(self, alias: str, old_index: str | None, new_index: str) -> None:
         self.swaps.append((alias, old_index, new_index))
 
@@ -213,6 +221,46 @@ async def test_count_mismatch_never_swaps_and_deactivates_live_target() -> None:
     with pytest.raises(RebuildError, match="rebuild_verification_failed"):
         await rebuilder.run()
     assert target_events[-1] is None
+
+
+@pytest.mark.asyncio
+async def test_identity_verification_rejects_equal_count_with_wrong_event_id() -> None:
+    class WrongIdentity(FakeSearch):
+        async def iter_event_ids(self, index: str) -> AsyncIterator[str]:
+            del index
+            yield str(UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"))
+
+    with pytest.raises(RebuildError, match="rebuild_verification_failed"):
+        await SearchRebuilder(
+            state=FakeState(),
+            search=WrongIdentity(),
+            source=FakeSource([event(1)]),
+            owner="reviewer",
+        ).run()
+
+
+@pytest.mark.asyncio
+async def test_convergence_boundary_is_persisted_before_alias_swap() -> None:
+    boundary = "000000000000000000000010"
+
+    class BoundedSource(FakeSource):
+        async def capture_high_water(self) -> str:
+            return boundary
+
+    async def converge(_initial: str | None):
+        from event_platform.search.rebuild import RebuildConvergence
+
+        return RebuildConvergence(source_high_water=boundary, projector_checkpoint=boundary)
+
+    result = await SearchRebuilder(
+        state=FakeState(),
+        search=FakeSearch(),
+        source=BoundedSource([event(1)]),
+        owner="reviewer",
+        wait_for_convergence=converge,
+    ).run()
+    assert result.source_high_water == boundary
+    assert result.projector_checkpoint == boundary
 
 
 @pytest.mark.asyncio

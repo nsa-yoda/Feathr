@@ -75,6 +75,7 @@ class MongoRebuildStore(RebuildLeaseStore):
                     "_id": self._LOCK_ID,
                     "rebuild_id": str(record.rebuild_id),
                     "owner": record.owner,
+                    "fencing_token": record.fencing_token,
                 },
                 {"$set": {"lease_expires_at": lease_expires_at}},
             )
@@ -84,13 +85,52 @@ class MongoRebuildStore(RebuildLeaseStore):
 
     async def save(self, record: RebuildRecord) -> None:
         try:
-            await cast(Any, self._collection).replace_one(
-                {"rebuild_id": str(record.rebuild_id), "owner": record.owner},
+            result = await cast(Any, self._collection).replace_one(
+                {
+                    "rebuild_id": str(record.rebuild_id),
+                    "owner": record.owner,
+                    "fencing_token": record.fencing_token,
+                },
                 _document(record),
                 upsert=False,
             )
+            if getattr(result, "matched_count", 1) == 0:
+                raise RebuildStorageError("rebuild_lease_lost")
+            lock_result = await cast(Any, self._lock_collection).update_one(
+                {
+                    "_id": self._LOCK_ID,
+                    "rebuild_id": str(record.rebuild_id),
+                    "owner": record.owner,
+                    "fencing_token": record.fencing_token,
+                },
+                {
+                    "$set": {
+                        "phase": record.phase.value,
+                        "lease_expires_at": record.lease_expires_at,
+                    }
+                },
+            )
+            if getattr(lock_result, "matched_count", 1) == 0:
+                raise RebuildStorageError("rebuild_lease_lost")
         except PyMongoError:
             raise RebuildStorageError("save_rebuild") from None
+
+    async def fencing_token(self, rebuild_id: UUID, owner: str) -> int | None:
+        """Read the current lease token so every state write is fenced."""
+
+        try:
+            document = await cast(Any, self._lock_collection).find_one(
+                {
+                    "_id": self._LOCK_ID,
+                    "rebuild_id": str(rebuild_id),
+                    "owner": owner,
+                },
+                projection={"fencing_token": 1},
+            )
+        except PyMongoError:
+            raise RebuildStorageError("load_rebuild_lease") from None
+        token = document.get("fencing_token") if isinstance(document, Mapping) else None
+        return token if isinstance(token, int) and token >= 1 else None
 
     async def latest(self) -> RebuildRecord | None:
         try:
@@ -117,6 +157,8 @@ def _document(record: RebuildRecord) -> dict[str, object]:
 
 def _record(document: Mapping[str, object]) -> RebuildRecord:
     try:
-        return RebuildRecord.model_validate(document)
+        return RebuildRecord.model_validate(
+            {key: value for key, value in document.items() if key != "_id"}
+        )
     except (TypeError, ValueError, KeyError):
         raise RebuildStorageError("decode_rebuild") from None
