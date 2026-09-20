@@ -201,6 +201,12 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Contribution:** added shared current/previous signing-key configuration across query/search, introduced `PublicEvent`, and rejected credential-bearing URLs.
 - **Validation:** query/search/domain/settings boundary suite passed; Ruff and strict mypy passed. Deployment rotation evidence remains environment-gated.
 
+### 2026-09-20 — Feature 032 queue performance and durability
+
+- **Task:** remove full-backlog scans from local queue scheduling and make durability semantics explicit.
+- **Contribution:** replaced list scans with ready deque/expiry heap scheduling, preserved receipt checks, and exposed the local adapter's volatile capability.
+- **Validation:** queue/retry/lifecycle suite passed 47 tests; Ruff and strict mypy passed. Durable production adapter/restart evidence remains deployment-gated.
+
 ### 2026-09-18 — Feature 009 review gate and merge preparation
 
 - **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.

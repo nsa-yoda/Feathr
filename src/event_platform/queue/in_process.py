@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import heapq
 import time
+from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -113,7 +115,10 @@ class InProcessQueue:
         self._send_timeout = send_timeout
         self._clock = clock
         self._condition = asyncio.Condition()
-        self._messages: list[_Message] = []
+        self._messages: dict[str, _Message] = {}
+        self._ready: deque[_Message] = deque()
+        self._expiry: list[tuple[float, int, str]] = []
+        self._sequence = 0
         self._dlq: list[DeadLetter] = []
         self._accepting = True
         self._closed = False
@@ -146,14 +151,14 @@ class InProcessQueue:
             if not self._accepting:
                 raise QueueClosed("queue is draining and no longer accepts sends")
             identifier = message_id or str(uuid4())
-            self._messages.append(
-                _Message(
-                    identifier,
-                    cast(Mapping[str, object], _freeze(body)),
-                    self._clock(),
-                    operation_id=operation_id,
-                )
+            message = _Message(
+                identifier,
+                cast(Mapping[str, object], _freeze(body)),
+                self._clock(),
+                operation_id=operation_id,
             )
+            self._messages[identifier] = message
+            self._ready.append(message)
             self._condition.notify_all()
             return identifier
 
@@ -165,24 +170,35 @@ class InProcessQueue:
             while True:
                 self._ensure_open()
                 now = self._clock()
-                for message in self._messages:
-                    if message.visibility_deadline <= now:
-                        message.receive_count += 1
-                        message.receipt_handle = str(uuid4())
-                        message.visibility_deadline = now + self._visibility_timeout
-                        return Delivery(
-                            message.message_id,
-                            message.body,
-                            message.receipt_handle,
-                            message.receive_count,
-                            message.enqueued_at,
-                            message.operation_id,
-                        )
+                self._promote_expired(now)
+                while self._ready:
+                    message = self._ready.popleft()
+                    if (
+                        message.message_id not in self._messages
+                        or message.visibility_deadline > now
+                    ):
+                        continue
+                    message.receive_count += 1
+                    message.receipt_handle = str(uuid4())
+                    message.visibility_deadline = now + self._visibility_timeout
+                    self._sequence += 1
+                    heapq.heappush(
+                        self._expiry,
+                        (message.visibility_deadline, self._sequence, message.message_id),
+                    )
+                    return Delivery(
+                        message.message_id,
+                        message.body,
+                        message.receipt_handle,
+                        message.receive_count,
+                        message.enqueued_at,
+                        message.operation_id,
+                    )
                 remaining = deadline - now
                 if remaining <= 0:
                     raise TimeoutError("long poll expired without a visible message")
                 next_deadline = min(
-                    (message.visibility_deadline for message in self._messages),
+                    (message.visibility_deadline for message in self._messages.values()),
                     default=deadline,
                 )
                 wait_for = min(remaining, max(0.0, next_deadline - now))
@@ -191,7 +207,7 @@ class InProcessQueue:
     async def delete(self, message_id: str, receipt_handle: str) -> None:
         async with self._condition:
             message = self._current(message_id, receipt_handle)
-            self._messages.remove(message)
+            del self._messages[message.message_id]
             self._condition.notify_all()
 
     async def change_visibility(self, message_id: str, receipt_handle: str, timeout: float) -> None:
@@ -200,6 +216,10 @@ class InProcessQueue:
         async with self._condition:
             message = self._current(message_id, receipt_handle)
             message.visibility_deadline = self._clock() + timeout
+            self._sequence += 1
+            heapq.heappush(
+                self._expiry, (message.visibility_deadline, self._sequence, message.message_id)
+            )
             self._condition.notify_all()
 
     async def dead_letter(
@@ -229,7 +249,7 @@ class InProcessQueue:
             self._dlq.append(
                 DeadLetter(delivery, classification, reason_code, message.receive_count)
             )
-            self._messages.remove(message)
+            del self._messages[message.message_id]
             self._condition.notify_all()
 
     async def redrive(self, *, max_receive_count: int) -> int:
@@ -239,7 +259,7 @@ class InProcessQueue:
             now = self._clock()
             moved = [
                 message
-                for message in self._messages
+                for message in self._messages.values()
                 if message.receive_count >= max_receive_count and message.visibility_deadline <= now
             ]
             for message in moved:
@@ -254,16 +274,17 @@ class InProcessQueue:
                 self._dlq.append(
                     DeadLetter(delivery, "unknown", "max_receive_count", message.receive_count)
                 )
-                self._messages.remove(message)
+                del self._messages[message.message_id]
             self._condition.notify_all()
             return len(moved)
 
     async def stats(self) -> QueueStats:
         async with self._condition:
             now = self._clock()
-            visible = sum(message.visibility_deadline <= now for message in self._messages)
+            self._promote_expired(now)
+            visible = sum(message.visibility_deadline <= now for message in self._messages.values())
             oldest_age = max(
-                (max(0.0, now - message.enqueued_at) for message in self._messages),
+                (max(0.0, now - message.enqueued_at) for message in self._messages.values()),
                 default=0.0,
             )
             return QueueStats(
@@ -303,6 +324,12 @@ class InProcessQueue:
 
         return self._accepting and not self._closed
 
+    @property
+    def durable(self) -> bool:
+        """The local adapter is intentionally volatile across process restarts."""
+
+        return False
+
     def stop_accepting(self) -> None:
         """Stop new sends while allowing current deliveries to drain."""
 
@@ -331,10 +358,17 @@ class InProcessQueue:
             raise QueueClosed("queue is closed")
 
     def _current(self, message_id: str, receipt_handle: str) -> _Message:
-        for message in self._messages:
-            if message.message_id == message_id and message.receipt_handle == receipt_handle:
-                return message
+        message = self._messages.get(message_id)
+        if message is not None and message.receipt_handle == receipt_handle:
+            return message
         raise ReceiptHandleError("receipt handle is stale or unknown")
+
+    def _promote_expired(self, now: float) -> None:
+        while self._expiry and self._expiry[0][0] <= now:
+            deadline, _, message_id = heapq.heappop(self._expiry)
+            message = self._messages.get(message_id)
+            if message is not None and message.visibility_deadline == deadline:
+                self._ready.append(message)
 
 
 def _is_safe_identifier(value: str) -> bool:

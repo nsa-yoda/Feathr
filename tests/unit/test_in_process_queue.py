@@ -197,3 +197,8 @@ async def test_queue_stop_accepting_and_boundary_arguments_are_classified() -> N
         await queue.change_visibility("missing", "receipt", -1)
     with pytest.raises(ValueError):
         await queue.redrive(max_receive_count=0)
+
+
+def test_local_queue_declares_volatile_capability() -> None:
+    queue = InProcessQueue(capacity=2)
+    assert queue.durable is False
