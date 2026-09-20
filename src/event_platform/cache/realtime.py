@@ -243,7 +243,8 @@ class RealtimeStatsService:
                 )
                 self._inflight[key] = task
         try:
-            response, outcome = await task
+            # A cancelled waiter must not cancel shared work needed by other callers.
+            response, outcome = await asyncio.shield(task)
         finally:
             if task.done() and self._inflight.get(key) is task:
                 self._inflight.pop(key, None)

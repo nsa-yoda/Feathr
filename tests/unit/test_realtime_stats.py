@@ -228,6 +228,35 @@ async def test_concurrent_misses_for_one_key_are_coalesced() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancelled_waiter_does_not_cancel_shared_refresh() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class BlockingStore(FakeStore):
+        async def aggregate(
+            self, pipeline: Sequence[Mapping[str, object]], *, max_time_ms: int | None = None
+        ) -> list[Mapping[str, object]]:
+            self.calls.append((pipeline, max_time_ms))
+            started.set()
+            await release.wait()
+            return documents()
+
+    service = RealtimeStatsService(
+        store=BlockingStore([]), cache=FakeCache(), now=lambda: FIXED_NOW
+    )
+    first = asyncio.create_task(service.get(window_minutes=5, request_id=UUID(int=40)))
+    await started.wait()
+    second = asyncio.create_task(service.get(window_minutes=5, request_id=UUID(int=41)))
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    release.set()
+    result, outcome = await second
+    assert result.total_events == 3
+    assert outcome == "MISS"
+
+
+@pytest.mark.asyncio
 async def test_redis_bypass_emits_safe_structured_outcome(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO", logger="event_platform.realtime_stats")
     service = RealtimeStatsService(
