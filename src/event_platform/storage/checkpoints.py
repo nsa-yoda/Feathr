@@ -62,6 +62,9 @@ class MongoProjectionCheckpointStore:
                 not isinstance(failure_code, str) or failure_code not in SAFE_FAILURE_CODES
             ):
                 raise ValueError
+            generation_value = document.get("generation", 0)
+            if not isinstance(generation_value, int) or generation_value < 0:
+                raise ValueError
             return ProjectionCheckpoint(
                 projector=projector,
                 resume_token=dict(token),
@@ -69,6 +72,8 @@ class MongoProjectionCheckpointStore:
                 updated_at=_utc(updated_at),
                 last_projected_event_at=_utc(last_event) if last_event else None,
                 failure_code=failure_code,
+                owner=str(document.get("owner", projector)),
+                generation=generation_value,
             )
         except (KeyError, TypeError, ValueError):
             raise ProjectionError("checkpoint_invalid") from None
@@ -76,8 +81,14 @@ class MongoProjectionCheckpointStore:
     async def save(self, checkpoint: ProjectionCheckpoint) -> None:
         try:
             _assert_bson_safe(checkpoint.resume_token)
-            await self._collection.replace_one(
-                {"projector": checkpoint.projector},
+            result = await self._collection.replace_one(
+                {
+                    "projector": checkpoint.projector,
+                    "$or": [
+                        {"generation": {"$lte": checkpoint.generation}},
+                        {"generation": {"$exists": False}},
+                    ],
+                },
                 {
                     "projector": checkpoint.projector,
                     "resume_token": dict(checkpoint.resume_token),
@@ -89,9 +100,16 @@ class MongoProjectionCheckpointStore:
                         else None
                     ),
                     "failure_code": checkpoint.failure_code,
+                    "owner": checkpoint.owner,
+                    "generation": checkpoint.generation,
                 },
                 upsert=True,
             )
+            if (
+                getattr(result, "matched_count", 1) == 0
+                and getattr(result, "upserted_id", None) is None
+            ):
+                raise ProjectionError("projection_owner_lost")
         except PyMongoError:
             raise CheckpointDependencyError() from None
         except (TypeError, ValueError):

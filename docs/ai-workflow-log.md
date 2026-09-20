@@ -183,6 +183,12 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Contribution:** added bounded source/checkpoint/fencing fields, monotonic lease fencing, historical status lookup, runtime rebuild-store wiring, and an alias-swap cleanup barrier.
 - **Validation:** rebuild/lifecycle focused suite passed 16 tests; Ruff and strict mypy passed. Concurrent real-service cutover remains environment-gated.
 
+### 2026-09-20 — Feature 029 projection resilience and ownership
+
+- **Task:** fence projection checkpoint ownership and bound projection batches.
+- **Contribution:** added explicit owner/generation checkpoint fields, stale-generation rejection at Mongo storage, a bounded batch API, and regression coverage.
+- **Validation:** projection unit suite passed 27 tests; Ruff and strict mypy passed. Concurrent replica recovery remains service-gated.
+
 ### 2026-09-18 — Feature 009 review gate and merge preparation
 
 - **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.

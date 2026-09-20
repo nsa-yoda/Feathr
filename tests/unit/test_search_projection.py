@@ -126,6 +126,26 @@ async def test_projection_is_deterministic_and_checkpoint_follows_all_writes() -
 
 
 @pytest.mark.asyncio
+async def test_projector_uses_explicit_owner_generation_and_bounded_batches() -> None:
+    calls: list[str] = []
+    checkpoint = FakeCheckpoint(calls=calls)
+    projector = SearchProjector(
+        projector="events-search",
+        checkpoint=checkpoint,
+        writer=FakeWriter(calls),
+        owner="pod-a",
+        generation=3,
+    )
+    await projector.start()
+    await projector.project_batch([change(), change({"_data": "resume-2"})])
+    assert checkpoint.current is not None
+    assert checkpoint.current.owner == "pod-a"
+    assert checkpoint.current.generation == 3
+    with pytest.raises(ValueError):
+        await projector.project_batch([change()] * 1001)
+
+
+@pytest.mark.asyncio
 async def test_replay_uses_same_document_id_and_checkpoint_is_not_advanced_on_es_failure() -> None:
     writer = FakeWriter([])
     checkpoint = FakeCheckpoint()

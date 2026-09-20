@@ -34,6 +34,7 @@ SAFE_FAILURE_CODES = frozenset(
         "dependency_unavailable",
         "retry_exhausted",
         "projector_stopped",
+        "projection_owner_lost",
     }
 )
 
@@ -67,6 +68,8 @@ class ProjectionCheckpoint:
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_projected_event_at: datetime | None = None
     failure_code: str | None = None
+    owner: str = "events-search"
+    generation: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +158,8 @@ class SearchProjector:
         projector: str,
         checkpoint: CheckpointPort,
         writer: ProjectionWriter,
+        owner: str = "events-search",
+        generation: int = 0,
         target_index: str | None = None,
         retry_policy: RetryPolicy | None = None,
         now: Callable[[], datetime] | None = None,
@@ -162,7 +167,11 @@ class SearchProjector:
     ) -> None:
         if not projector or len(projector) > 64:
             raise ValueError("projector name is invalid")
+        if not owner or len(owner) > 128 or generation < 0:
+            raise ValueError("projection ownership is invalid")
         self.projector = projector
+        self._owner = owner
+        self._generation = generation
         self._checkpoint = checkpoint
         self._writer = writer
         self._target_index = target_index
@@ -230,6 +239,8 @@ class SearchProjector:
                 state="running",
                 updated_at=self._now(),
                 last_projected_event_at=change.event.timestamp,
+                owner=self._owner,
+                generation=self._generation,
             )
             await self._checkpoint.save(checkpoint)
         except ProjectionError as error:
@@ -246,6 +257,15 @@ class SearchProjector:
         self._current = checkpoint
         self._status = self._status_from_checkpoint(checkpoint)
         self._emit("projector.success", state="running")
+        return self._status
+
+    async def project_batch(self, changes: Sequence[ChangeStreamEvent]) -> ProjectionStatus:
+        """Project a bounded batch without creating one task per change."""
+
+        if len(changes) > 1_000:
+            raise ValueError("projection batch is too large")
+        for change in changes:
+            await self.project_change(change)
         return self._status
 
     async def run(self, stream: AsyncIterator[ChangeStreamEvent]) -> ProjectionStatus:
