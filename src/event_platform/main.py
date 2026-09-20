@@ -82,6 +82,19 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             raise
 
         configure_logging(app.state.settings.log_level)
+        app.state.cursor_signing_key = (
+            app.state.settings.cursor_signing_key.encode()
+            if app.state.settings.cursor_signing_key
+            else None
+        )
+        previous_cursor_key = (
+            app.state.settings.cursor_previous_signing_key.encode()
+            if app.state.settings.cursor_previous_signing_key
+            else None
+        )
+        app.state.cursor_keys = tuple(
+            key for key in (app.state.cursor_signing_key, previous_cursor_key) if key is not None
+        )
         redis_client: Redis | None = None
         mongo_client: AsyncMongoClient[Any] | None = None
         elasticsearch_client: AsyncElasticsearch | None = None
@@ -262,6 +275,10 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 app.state.search_service = ElasticsearchSearchService(
                     cast(SearchClient, elasticsearch_client),
                     alias=app.state.settings.elasticsearch_alias,
+                    cursor_key=(app.state.cursor_keys[0] if app.state.cursor_keys else None),
+                    previous_cursor_key=(
+                        app.state.cursor_keys[1] if len(app.state.cursor_keys) > 1 else None
+                    ),
                 )
                 try:
                     await ensure_search_alias(

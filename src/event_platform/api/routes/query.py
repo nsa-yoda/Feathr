@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from event_platform.api.problems import ProblemResponse
-from event_platform.domain.events import CanonicalEvent
+from event_platform.domain.events import CanonicalEvent, PublicEvent
 from event_platform.storage.mongo import EventQuery, MongoDependencyError
 
 router = APIRouter(tags=["events"])
@@ -36,7 +36,7 @@ class EventCursor(BaseModel):
 
 
 class EventPage(BaseModel):
-    items: list[CanonicalEvent]
+    items: list[PublicEvent]
     limit: int
     next_cursor: str | None
     request_id: UUID
@@ -83,6 +83,7 @@ def encode_cursor(
     event_id: UUID,
     *,
     scope: bytes = b"",
+    key: bytes = _CURSOR_KEY,
 ) -> str:
     """Encode only the public keyset fields in a signed URL-safe token."""
 
@@ -94,14 +95,14 @@ def encode_cursor(
         sort_keys=True,
     ).encode("utf-8")
     encoded_payload = _encode_part(payload)
-    signature = _encode_part(hmac.new(_CURSOR_KEY, payload + b"." + scope, hashlib.sha256).digest())
+    signature = _encode_part(hmac.new(key, payload + b"." + scope, hashlib.sha256).digest())
     token = f"{encoded_payload}.{signature}"
     if len(token) > _MAX_CURSOR_LENGTH:
         raise CursorError("cursor is invalid")
     return token
 
 
-def decode_cursor(token: str, *, scope: bytes = b"") -> EventCursor:
+def decode_cursor(token: str, *, scope: bytes = b"", key: bytes = _CURSOR_KEY) -> EventCursor:
     """Validate a cursor without exposing parser or signature details."""
 
     if not isinstance(token, str) or len(token) > _MAX_CURSOR_LENGTH or token.count(".") != 1:
@@ -109,7 +110,7 @@ def decode_cursor(token: str, *, scope: bytes = b"") -> EventCursor:
     payload_part, signature_part = token.split(".", 1)
     payload = _decode_part(payload_part)
     supplied_signature = _decode_part(signature_part)
-    expected_signature = hmac.new(_CURSOR_KEY, payload + b"." + scope, hashlib.sha256).digest()
+    expected_signature = hmac.new(key, payload + b"." + scope, hashlib.sha256).digest()
     if not hmac.compare_digest(supplied_signature, expected_signature):
         raise CursorError("cursor is invalid")
     try:
@@ -130,6 +131,11 @@ def decode_cursor(token: str, *, scope: bytes = b"") -> EventCursor:
 
 def _request_uuid(request: Request) -> UUID:
     return UUID(str(getattr(request.state, "request_id", secrets.token_hex(16))))
+
+
+def _cursor_keys(request: Request) -> tuple[bytes, ...]:
+    keys = getattr(request.app.state, "cursor_keys", None)
+    return keys if isinstance(keys, tuple) and keys else (_CURSOR_KEY,)
 
 
 def _invalid_query() -> HTTPException:
@@ -187,9 +193,14 @@ async def query_events(
         query.timestamp_to,
     )
     if cursor is not None:
-        try:
-            continuation = decode_cursor(cursor, scope=scope)
-        except CursorError:
+        continuation = None
+        for key in _cursor_keys(request):
+            try:
+                continuation = decode_cursor(cursor, scope=scope, key=key)
+                break
+            except CursorError:
+                continue
+        if continuation is None:
             raise _invalid_query() from None
         query = query.model_copy(
             update={
@@ -215,12 +226,17 @@ async def query_events(
         ) from None
     page_items = events[:limit]
     next_cursor = (
-        encode_cursor(page_items[-1].timestamp, page_items[-1].event_id, scope=scope)
+        encode_cursor(
+            page_items[-1].timestamp,
+            page_items[-1].event_id,
+            scope=scope,
+            key=_cursor_keys(request)[0],
+        )
         if len(events) > limit
         else None
     )
     return EventPage(
-        items=page_items,
+        items=[PublicEvent.from_canonical(item) for item in page_items],
         limit=limit,
         next_cursor=next_cursor,
         request_id=request_id,

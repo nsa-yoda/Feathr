@@ -75,6 +75,14 @@ def test_production_rejects_zero_visibility_timeout() -> None:
 
 
 @pytest.mark.unit
+def test_production_requires_shared_cursor_signing_key() -> None:
+    from event_platform.core.settings import ServiceSettings
+
+    with pytest.raises(ValidationError, match="cursor_signing_key"):
+        ServiceSettings(env="production", mongo_url="mongodb://mongo:27017")
+
+
+@pytest.mark.unit
 def test_loaded_production_configuration_names_missing_mongo(
     monkeypatch: pytest.MonkeyPatch, tmp_path: object
 ) -> None:
@@ -89,4 +97,7 @@ def test_loaded_production_configuration_names_missing_mongo(
     with pytest.raises(SettingsStartupError) as error:
         load_settings()
 
-    assert error.value.fields == ("EVENT_PLATFORM_MONGO_URL",)
+    assert error.value.fields == (
+        "EVENT_PLATFORM_CURSOR_SIGNING_KEY",
+        "EVENT_PLATFORM_MONGO_URL",
+    )

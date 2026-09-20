@@ -78,7 +78,10 @@ class EventQuery(BaseModel):
     def normalize_source_url(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return str(_SOURCE_URL_ADAPTER.validate_python(value))
+        parsed = _SOURCE_URL_ADAPTER.validate_python(value)
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("source_url credentials are not allowed")
+        return str(parsed)
 
     @field_validator("timestamp_from", "timestamp_to", "after_timestamp")
     @classmethod

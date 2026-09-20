@@ -180,6 +180,13 @@ class EventInput(BaseModel):
             raise ValueError("control characters are not allowed")
         return value
 
+    @field_validator("source_url")
+    @classmethod
+    def reject_url_credentials(cls, value: HttpUrl) -> HttpUrl:
+        if value.username is not None or value.password is not None:
+            raise ValueError("source_url credentials are not allowed")
+        return value
+
     @field_validator("timestamp")
     @classmethod
     def normalize_timestamp(cls, value: datetime) -> datetime:
@@ -264,6 +271,32 @@ class CanonicalEvent(BaseModel):
             ingested_at=accepted_at,
             payload_hash=payload_hash(input_event),
             idempotency_key_hash=key_hash,
+        )
+
+
+class PublicEvent(BaseModel):
+    """Read API representation without persistence or retry control fields."""
+
+    model_config = ConfigDict(frozen=True)
+
+    event_id: UUID
+    event_type: str
+    timestamp: datetime
+    user_id: str
+    source_url: HttpUrl
+    metadata: MetadataObject
+    ingested_at: datetime
+
+    @classmethod
+    def from_canonical(cls, event: CanonicalEvent) -> PublicEvent:
+        return cls(
+            event_id=event.event_id,
+            event_type=event.event_type,
+            timestamp=event.timestamp,
+            user_id=event.user_id,
+            source_url=event.source_url,
+            metadata=event.metadata,
+            ingested_at=event.ingested_at,
         )
 
 

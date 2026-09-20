@@ -195,6 +195,12 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Contribution:** added Mongo/local registry adapters, scoped hashed identities, reservation/completion flow around event admission, replay-window configuration, and contract tests.
 - **Validation:** focused ingestion/registry suite passed 8 tests; Ruff and strict mypy passed. Multi-replica race evidence remains service-gated.
 
+### 2026-09-20 — Feature 031 cursor API boundary hardening
+
+- **Task:** make cursors cross-instance safe and remove persistence-only fields from public responses.
+- **Contribution:** added shared current/previous signing-key configuration across query/search, introduced `PublicEvent`, and rejected credential-bearing URLs.
+- **Validation:** query/search/domain/settings boundary suite passed; Ruff and strict mypy passed. Deployment rotation evidence remains environment-gated.
+
 ### 2026-09-18 — Feature 009 review gate and merge preparation
 
 - **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.

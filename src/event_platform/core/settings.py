@@ -37,6 +37,8 @@ class ServiceSettings(BaseSettings):
     mongo_collection: str = Field(default="events", min_length=1, max_length=128)
     elasticsearch_url: str | None = Field(default=None, max_length=2_048)
     elasticsearch_alias: str = Field(default="events-search", min_length=1, max_length=255)
+    cursor_signing_key: str | None = Field(default=None, min_length=16, max_length=128)
+    cursor_previous_signing_key: str | None = Field(default=None, min_length=16, max_length=128)
     redis_url: str | None = Field(default=None, max_length=2_048)
     realtime_cache_ttl_seconds: int = Field(default=10, ge=1, le=300)
     realtime_default_window_minutes: int = Field(default=5, ge=1, le=60)
@@ -75,6 +77,13 @@ class ServiceSettings(BaseSettings):
     def validate_visibility_timeout(cls, value: float, info: ValidationInfo) -> float:
         if info.data.get("env") == "production" and value <= 0:
             raise ValueError("queue_visibility_timeout must be positive in production")
+        return value
+
+    @field_validator("cursor_signing_key")
+    @classmethod
+    def validate_cursor_key(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if info.data.get("env") == "production" and not value:
+            raise ValueError("cursor_signing_key is required in production")
         return value
 
     @field_validator("redis_url")

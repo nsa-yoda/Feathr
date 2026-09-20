@@ -16,7 +16,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from event_platform.domain.events import CanonicalEvent
+from event_platform.domain.events import CanonicalEvent, PublicEvent
 
 _CURSOR_KEY = secrets.token_bytes(32)
 _MAX_CURSOR_LENGTH = 512
@@ -75,7 +75,7 @@ class SearchQuery(BaseModel):
 
 
 class SearchPage(BaseModel):
-    items: list[CanonicalEvent]
+    items: list[PublicEvent]
     limit: int
     next_cursor: str | None
     request_id: UUID
@@ -159,12 +159,14 @@ class ElasticsearchSearchService:
         *,
         alias: str = "events-search",
         cursor_key: bytes | None = None,
+        previous_cursor_key: bytes | None = None,
     ) -> None:
         if not alias or len(alias) > 255:
             raise ValueError("search alias is invalid")
         self._client = client
         self._alias = alias
         self._cursor_key = cursor_key or _CURSOR_KEY
+        self._previous_cursor_key = previous_cursor_key
         if not 16 <= len(self._cursor_key) <= 64:
             raise ValueError("cursor key is invalid")
 
@@ -172,7 +174,16 @@ class ElasticsearchSearchService:
         scope = _scope(query)
         search_after: list[object] | None = None
         if query.cursor is not None:
-            search_after = decode_search_cursor(query.cursor, scope=scope, key=self._cursor_key)
+            for key in (self._cursor_key, self._previous_cursor_key):
+                if key is None:
+                    continue
+                try:
+                    search_after = decode_search_cursor(query.cursor, scope=scope, key=key)
+                    break
+                except SearchCursorError:
+                    continue
+            if search_after is None:
+                raise SearchCursorError("cursor is invalid")
         filters: list[dict[str, object]] = []
         if query.event_type is not None:
             filters.append({"term": {"event_type": query.event_type}})
@@ -254,5 +265,8 @@ class ElasticsearchSearchService:
             )
             raise SearchDependencyError("search dependency unavailable") from None
         return SearchPage(
-            items=page_items, limit=query.limit, next_cursor=next_cursor, request_id=request_id
+            items=[PublicEvent.from_canonical(item) for item in page_items],
+            limit=query.limit,
+            next_cursor=next_cursor,
+            request_id=request_id,
         )
