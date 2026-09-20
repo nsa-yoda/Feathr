@@ -82,14 +82,13 @@ src/event_platform/
 │   ├── middleware/         # request ID assignment
 │   └── routes/
 │       └── health.py       # minimal liveness only
-├── application/
 ├── domain/
 ├── queue/
 ├── storage/
 ├── search/
 ├── cache/
 ├── rate_limit/
-├── workers/
+├── worker/                       # persistence worker orchestration
 └── observability/
 tests/
 ├── unit/                   # settings, lifespan, problems, import effects
@@ -97,7 +96,7 @@ tests/
 └── failure/                # reserved for failure features
 ```
 
-**Structure Decision**: Extend the repository's existing `src/event_platform` placeholders. `api` owns HTTP concerns, `core` owns settings and the Uvicorn JSON logging configuration, and later `application`/`domain` modules hold behavior and contracts. Queue, storage, search, cache, and rate-limit packages are boundaries only in this feature; avoid premature interfaces or client creation. `main.py` supplies a no-argument app factory loaded with `uvicorn --factory`; settings are validated during lifespan startup or explicitly injected by tests. Minimal request ID middleware sets request state and response header; Feature 015 expands observability without changing the public error shape. The Makefile exposes the four foundation quality checks plus no-op-safe integration and failure category commands so later feature suites have stable entrypoints.
+**Structure Decision**: Extend the repository's concrete `src/event_platform` boundaries. `api` owns HTTP concerns, `core` owns settings, composition, lifecycle, and Uvicorn JSON logging, `domain` owns contracts, and executable worker orchestration lives in singular `worker/` while search projection orchestration remains under `search/`. Queue, storage, search, cache, and rate-limit packages are boundaries only in this feature; avoid premature interfaces or client creation. `main.py` supplies a no-argument app factory loaded with `uvicorn --factory`; settings are validated during lifespan startup or explicitly injected by tests. Minimal request ID middleware sets request state and response header; Feature 015 expands observability without changing the public error shape. The Makefile exposes the four foundation quality checks plus no-op-safe integration and failure category commands so later feature suites have stable entrypoints.
 
 ## Phase 0 Research Decisions
 

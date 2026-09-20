@@ -23,7 +23,7 @@ description: "Dependency-ordered implementation tasks for Platform Foundation"
 - [X] T001 Define the Python 3.12+ `src` package, FastAPI/Pydantic Settings/Uvicorn runtime dependencies, and uv development dependencies in `pyproject.toml` per `research.md`.
 - [X] T002 Resolve and write the dependency lock in `uv.lock`, then confirm `uv sync --locked` accepts `pyproject.toml` and `uv.lock` together (depends on T001).
 - [X] T003 [P] Add package markers in `src/event_platform/__init__.py`, `src/event_platform/core/__init__.py`, `src/event_platform/api/__init__.py`, `src/event_platform/api/routes/__init__.py`, and `src/event_platform/api/middleware/__init__.py`.
-- [X] T004 [P] Add empty ownership package markers in `src/event_platform/application/__init__.py`, `src/event_platform/domain/__init__.py`, `src/event_platform/queue/__init__.py`, `src/event_platform/storage/__init__.py`, `src/event_platform/search/__init__.py`, `src/event_platform/cache/__init__.py`, `src/event_platform/rate_limit/__init__.py`, `src/event_platform/workers/__init__.py`, and `src/event_platform/observability/__init__.py`; do not introduce adapters or clients.
+- [X] T004 [P] Add package markers for the concrete ownership boundaries in `src/event_platform/domain/__init__.py`, `src/event_platform/queue/__init__.py`, `src/event_platform/storage/__init__.py`, `src/event_platform/search/__init__.py`, `src/event_platform/cache/__init__.py`, `src/event_platform/rate_limit/__init__.py`, `src/event_platform/worker/__init__.py`, and `src/event_platform/observability/__init__.py`; do not introduce adapters or clients.
 
 **Checkpoint**: The locked package installs and all planned import boundaries exist without business behavior.
 

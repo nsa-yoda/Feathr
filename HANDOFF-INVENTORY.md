@@ -112,7 +112,6 @@ This pack contains architecture, ADRs, SpecKit-driving feature requests, operati
 - `specs/FEATURE-MANIFEST.yaml`
 - `specs/MASTER-SPEC.md`
 - `src/event_platform/api/README.md`
-- `src/event_platform/application/README.md`
 - `src/event_platform/cache/README.md`
 - `src/event_platform/domain/README.md`
 - `src/event_platform/observability/README.md`
@@ -120,7 +119,6 @@ This pack contains architecture, ADRs, SpecKit-driving feature requests, operati
 - `src/event_platform/rate_limit/README.md`
 - `src/event_platform/search/README.md`
 - `src/event_platform/storage/README.md`
-- `src/event_platform/workers/README.md`
 - `tests/failure/README.md`
 - `tests/integration/README.md`
 - `tests/unit/README.md`

@@ -57,7 +57,7 @@ The remaining intentional limits are the assignment's single static bearer-token
 | P3-02 stale rebuild metrics route | **ALREADY RESOLVED** | The reviewed revision already maps `/operations/search-rebuild` to the bounded `rebuild` family; no unnecessary change was made. |
 | P3-03 per-request CORS middleware construction | **FIXED** | `ConfiguredCORSMiddleware` reuses the configured Starlette middleware and only rebuilds when the origin configuration changes. |
 | P3-04 coverage was not enforced | **FIXED** | Makefile and CI enforce `coverage report --fail-under=90`; current backend branch coverage is 90%. |
-| P3-05 placeholder package duplication | **INTENTIONALLY DEFERRED** | Empty `application/` and plural `workers/` packages are retained as documented Spec Kit/module-boundary placeholders; executable worker ownership remains singular under `worker/`. Removing them would not improve runtime correctness. |
+| P3-05 placeholder package duplication | **FIXED** | Removed the unused `application/` and plural `workers/` marker packages. Updated the foundation plan/tasks, target layout, handoff inventory, and checksum manifest to describe the concrete `core`, singular `worker`, and `search` ownership boundaries. Runtime imports and packaging remain unchanged. |
 
 ## Tests added or modified
 

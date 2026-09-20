@@ -32,14 +32,13 @@ Codex may refine filenames, but preserve the separation of responsibilities and 
 │   │   │   ├── search.py
 │   │   │   └── health.py
 │   │   └── problems.py
-│   ├── application/
 │   ├── domain/
 │   ├── queue/
 │   ├── storage/
 │   ├── search/
 │   ├── cache/
 │   ├── rate_limit/
-│   ├── workers/
+│   ├── worker/                    # persistence worker orchestration
 │   ├── observability/
 │   ├── core/
 │   └── cli/
@@ -59,4 +58,4 @@ Codex may refine filenames, but preserve the separation of responsibilities and 
     └── smoke.sh
 ```
 
-Dependency direction should remain approximately: `api/workers -> application -> domain/ports`, with infrastructure adapters implementing ports. Do not let route modules become service locators for raw database clients.
+Dependency direction should remain approximately: `api` and `worker` orchestration -> `core`/`domain` contracts -> infrastructure adapters. Search projection orchestration stays under `search`; do not let route modules become service locators for raw database clients.
