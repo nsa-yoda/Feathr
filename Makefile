@@ -1,4 +1,4 @@
-.PHONY: format-check lint typecheck test-unit test-integration test-failure all coverage compose-config compose-up compose-down compose-reset smoke postman rebuild-status rebuild-demo
+.PHONY: format-check lint typecheck test-unit test-integration test-integration-required test-failure check-source-archive all coverage compose-config compose-up compose-down compose-reset smoke postman rebuild-status rebuild-demo
 
 format-check:
 	uv run --locked ruff format --check src tests
@@ -14,6 +14,12 @@ test-unit:
 
 test-integration:
 	uv run --locked pytest -q tests/integration -m integration --pass-with-no-tests
+
+test-integration-required:
+	./scripts/test-integration-required
+
+check-source-archive:
+	./scripts/check-source-archive
 
 test-failure:
 	uv run --locked pytest -q tests/failure -m failure --pass-with-no-tests

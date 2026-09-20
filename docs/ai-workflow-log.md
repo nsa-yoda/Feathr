@@ -225,6 +225,12 @@ Maintain this throughout implementation. The final README `AI in My Workflow` se
 - **Contribution:** added `ApplicationServices` and a small factory, then wired lifespan-owned event/search/rebuild dependencies while preserving existing cleanup order.
 - **Validation:** composition test plus full Ruff and strict mypy passed.
 
+### 2026-09-20 — Feature 036 CI and supply-chain hygiene
+
+- **Task:** make mandatory integration evidence and source archive cleanliness explicit.
+- **Contribution:** added strict configured integration/JUnit skip gate, tracked archive validator, Make targets, and CI archive invocation.
+- **Validation:** archive check, developer workflow tests, Ruff, and strict mypy passed. Service-backed strict integration requires configured endpoints.
+
 ### 2026-09-18 — Feature 009 review gate and merge preparation
 
 - **Tool/model:** Codex with staff/comprehensive Spec Kit review procedures, Serena MCP, and specialized review agents.

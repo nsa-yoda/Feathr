@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+missing=()
+for name in MONGO_URI ELASTICSEARCH_URL REDIS_URL; do
+  if [[ -z "${!name:-}" ]]; then missing+=("$name"); fi
+done
+if (( ${#missing[@]} )); then
+  printf 'required integration endpoints are missing: %s\n' "${missing[*]}" >&2
+  exit 2
+fi
+report="${TMPDIR:-/tmp}/feathr-integration.xml"
+uv run --locked pytest -q tests/integration -m integration --junitxml="$report"
+REPORT="$report" .venv/bin/python - <<'PY'
+import os
+import sys
+import xml.etree.ElementTree as ET
+root = ET.parse(os.environ["REPORT"]).getroot()
+skipped = sum(int(case.attrib.get("skip", "0") or 0) for case in root.iter("testcase"))
+if skipped:
+    print(f"mandatory integration suite reported {skipped} skipped tests", file=sys.stderr)
+    raise SystemExit(1)
+PY

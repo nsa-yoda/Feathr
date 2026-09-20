@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if git ls-files -z | tr '\0' '\n' | grep -E '(^|/)(__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|node_modules)(/|$)|\.py[cod]$|(^|/)(\.DS_Store|Thumbs\.db)$' >/dev/null; then
+  echo 'tracked source archive contains cache or platform metadata' >&2
+  exit 1
+fi
+for required in pyproject.toml uv.lock specs README.md; do
+  test -e "$required" || { echo "archive missing $required" >&2; exit 1; }
+done
