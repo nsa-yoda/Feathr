@@ -48,6 +48,9 @@ def test_console_uses_same_origin_api_and_safe_problem_rendering() -> None:
     assert "events/stats/realtime" in text
     assert "events/search/rebuild" in text
     assert "completed_at" in text and "started_at" in text
+    assert "phase:'not_started'" in text
+    assert "No rebuild has run yet" in text
+    assert "function rebuildCard" in text
     assert "content-type" in text
     assert "response.status !== 202" in text
 
