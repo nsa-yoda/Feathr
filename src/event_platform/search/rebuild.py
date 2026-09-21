@@ -174,6 +174,9 @@ class RebuildConvergence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     backfill_upper_bound: str | None = Field(default=None, max_length=256)
+    # This is the source fence drained from an independent Mongo change
+    # stream after backfill. It is never copied from a projector checkpoint.
+    source_fence: str | None = Field(default=None, max_length=64)
     projector_change_stream_position: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="before")
@@ -201,7 +204,7 @@ class RebuildConvergence(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class RebuildBoundary:
-    """Backfill query bound plus the authoritative projector watermark."""
+    """Backfill query bound plus the projector marker at fence capture."""
 
     backfill_upper_bound: str | None
     change_stream_position: str | None
@@ -370,6 +373,9 @@ class SearchRebuilder:
                         update={
                             "backfill_upper_bound": convergence.backfill_upper_bound
                             or record.backfill_upper_bound,
+                            "change_stream_position": (
+                                convergence.source_fence or record.change_stream_position
+                            ),
                             "projector_change_stream_position": (
                                 convergence.projector_change_stream_position
                             ),

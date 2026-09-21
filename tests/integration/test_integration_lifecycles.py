@@ -30,6 +30,8 @@ from event_platform.storage.bootstrap import StorageCollections, bootstrap_stora
 from event_platform.storage.mongo import event_to_document
 from tests.integration.support import (
     IntegrationNamespace,
+    delete_es_alias,
+    delete_es_index,
     new_namespace,
     poll_until,
     require_elasticsearch,
@@ -172,10 +174,8 @@ async def test_http_change_stream_projection_reaches_real_search_api() -> None:
         cleanup_es = AsyncElasticsearch(hosts=[elasticsearch_url])
         try:
             try:
-                await cleanup_es.indices.delete_alias(
-                    index=physical, name=namespace.alias, ignore_unavailable=True
-                )
-                await cleanup_es.indices.delete(index=f"{physical}*", ignore_unavailable=True)
+                await delete_es_alias(cleanup_es, index=physical, alias=namespace.alias)
+                await delete_es_index(cleanup_es, f"{physical}*")
             except (ConnectionError, OSError, RuntimeError, TransportError):
                 pass
         finally:
@@ -238,10 +238,8 @@ async def test_http_change_stream_projection_reaches_real_search_api() -> None:
         cleanup_es = AsyncElasticsearch(hosts=[elasticsearch_url])
         try:
             try:
-                await cleanup_es.indices.delete_alias(
-                    index=physical, name=namespace.alias, ignore_unavailable=True
-                )
-                await cleanup_es.indices.delete(index=f"{physical}*", ignore_unavailable=True)
+                await delete_es_alias(cleanup_es, index=physical, alias=namespace.alias)
+                await delete_es_index(cleanup_es, f"{physical}*")
             except (ConnectionError, OSError, RuntimeError, TransportError) as error:
                 cleanup_errors.append(f"elasticsearch:{type(error).__name__}")
         finally:
@@ -264,8 +262,9 @@ async def test_http_analytics_and_realtime_cache_use_real_services() -> None:
     mongo = AsyncMongoClient(mongo_uri)
     redis = Redis.from_url(redis_url)
     events = mongo[namespace.database][namespace.collection]
-    first = _event(event_type="purchase", timestamp=datetime(2026, 1, 5, 12, 5, tzinfo=UTC))
-    second = _event(event_type="pageview", timestamp=datetime(2026, 1, 5, 12, 15, tzinfo=UTC))
+    now = datetime.now(UTC).replace(microsecond=0)
+    first = _event(event_type="purchase", timestamp=now - timedelta(minutes=2))
+    second = _event(event_type="pageview", timestamp=now - timedelta(minutes=1))
     cache_prefix = f"feature019-{namespace.suffix}"
     cache_key = f"{cache_prefix}:{realtime_cache_key(5)}"
     try:
@@ -301,8 +300,8 @@ async def test_http_analytics_and_realtime_cache_use_real_services() -> None:
                     "/events/stats",
                     params={
                         "bucket": "hour",
-                        "start": "2026-01-05T12:00:00Z",
-                        "end": "2026-01-05T12:59:59Z",
+                        "start": (now - timedelta(minutes=5)).isoformat(),
+                        "end": now.isoformat(),
                     },
                 )
                 assert stats.status_code == 200

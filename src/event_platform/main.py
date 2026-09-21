@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from typing import Any, cast
 from uuid import uuid4
@@ -390,11 +390,15 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     generation=0,
                     metrics=app.state.metrics,
                 )
-                source = MongoChangeStreamSource(event_collection)
+                projector_ready = asyncio.Event()
+                source = MongoChangeStreamSource(event_collection, ready=projector_ready)
                 rebuild_source = MongoRebuildSource(event_collection)
                 app.state.search_projector = search_projector
+                rebuild_fence = None
 
                 async def capture_rebuild_boundary() -> RebuildBoundary:
+                    nonlocal rebuild_fence
+                    rebuild_fence = await source.begin_fence()
                     upper = await rebuild_source.capture_backfill_upper_bound()
                     position = search_projector.change_stream_position()
                     if upper is not None and position is None:
@@ -412,9 +416,11 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 async def wait_for_rebuild_convergence(
                     boundary: RebuildBoundary,
                 ) -> RebuildConvergence:
-                    token = search_projector.resume_token()
-                    latest = await source.latest_position(resume_after=token) if token else None
-                    target = latest or boundary.change_stream_position
+                    nonlocal rebuild_fence
+                    fence = rebuild_fence
+                    rebuild_fence = None
+                    source_fence = await fence.latest_position() if fence is not None else None
+                    target = source_fence
                     deadline = (
                         asyncio.get_running_loop().time()
                         + app.state.settings.dependency_timeout_seconds * 12
@@ -427,6 +433,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                         ):
                             return RebuildConvergence(
                                 backfill_upper_bound=boundary.backfill_upper_bound,
+                                source_fence=source_fence,
                                 projector_change_stream_position=marker,
                             )
                         if asyncio.get_running_loop().time() >= deadline:
@@ -530,6 +537,55 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                     for name in task_factories
                 },
             )
+            # Do not expose the HTTP app before the canonical worker and, when
+            # configured, the change-stream cursor have reached their startup
+            # boundary. Otherwise an immediately accepted event could commit
+            # before a newly opened change stream and be missed by projection.
+            readiness_waiters: list[Awaitable[None]] = []
+            if "persistence_worker" in task_factories:
+
+                async def wait_for_worker() -> None:
+                    deadline = (
+                        asyncio.get_running_loop().time()
+                        + app.state.settings.dependency_timeout_seconds
+                    )
+                    while not app.state.persistence_worker_ready:
+                        if asyncio.get_running_loop().time() >= deadline:
+                            raise TimeoutError("persistence worker startup timed out")
+                        await asyncio.sleep(0.01)
+
+                readiness_waiters.append(wait_for_worker())
+            if "search_projector" in task_factories:
+
+                async def wait_for_projector() -> None:
+                    await asyncio.wait_for(
+                        projector_ready.wait(),
+                        timeout=app.state.settings.dependency_timeout_seconds,
+                    )
+
+                readiness_waiters.append(wait_for_projector())
+            if readiness_waiters:
+                try:
+                    await asyncio.gather(*readiness_waiters)
+                except TimeoutError:
+                    # A derived projector may remain degraded (for example
+                    # after an invalid resume history) without preventing the
+                    # canonical API from starting. Healthy deployments still
+                    # complete this gate before accepting HTTP traffic.
+                    logger.warning(
+                        "background startup readiness degraded",
+                        extra={
+                            "event": "lifecycle.startup_readiness_degraded",
+                            "components": tuple(
+                                name
+                                for name, present in (
+                                    ("persistence_worker", "persistence_worker" in task_factories),
+                                    ("search_projector", "search_projector" in task_factories),
+                                )
+                                if present
+                            ),
+                        },
+                    )
             app.state.metrics.inc("event_platform_lifecycle_events_total", {"outcome": "startup"})
         except Exception as error:
             if supervisor is not None:

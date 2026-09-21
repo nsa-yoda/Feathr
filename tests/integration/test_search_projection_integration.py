@@ -19,6 +19,8 @@ from event_platform.storage.change_stream import MongoChangeStreamSource
 from event_platform.storage.checkpoints import MongoProjectionCheckpointStore
 from event_platform.storage.mongo import event_to_document
 from tests.integration.support import (
+    delete_es_index,
+    drop_database,
     new_namespace,
     poll_until,
     require_elasticsearch,
@@ -114,12 +116,12 @@ async def test_real_mongo_change_stream_projector_and_elasticsearch_target() -> 
                 task_error = result
         for index in (alias, target):
             try:
-                await es.indices.delete(index=index, ignore_status=404)
+                await delete_es_index(es, index)
             except (ConnectionError, OSError, TransportError) as error:
                 cleanup_errors.append(f"elasticsearch:{type(error).__name__}")
         try:
             try:
-                await database.drop()
+                await drop_database(mongo, database)
             except (ConnectionError, OSError, PyMongoError) as error:
                 cleanup_errors.append(f"mongo:{type(error).__name__}")
         finally:

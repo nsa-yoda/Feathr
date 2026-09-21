@@ -9,6 +9,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
+from bson import ObjectId
 from elastic_transport import ApiError, TransportError
 from elasticsearch import AsyncElasticsearch
 from pymongo import AsyncMongoClient
@@ -96,6 +97,8 @@ class PausedMongoSource:
         self._source = MongoRebuildSource(collection)
         self.started = asyncio.Event()
         self.release = asyncio.Event()
+        self.backfill_complete = asyncio.Event()
+        self.after_backfill_release = asyncio.Event()
         self._scan_count = 0
 
     async def capture_high_water(self) -> str | None:
@@ -112,6 +115,9 @@ class PausedMongoSource:
                 await self.release.wait()
             async for event in self._source.scan(high_water=high_water):
                 yield event
+            if self._scan_count == 1:
+                self.backfill_complete.set()
+                await self.after_backfill_release.wait()
 
         return paused_scan()
 
@@ -131,21 +137,26 @@ class ObservingAdapter(ElasticsearchRebuildAdapter):
 async def _wait_for_convergence(
     source: MongoRebuildSource | PausedMongoSource,
     projector: SearchProjector,
-    change_source: MongoChangeStreamSource,
     boundary: RebuildBoundary,
+    fence_holder: dict[str, object],
 ) -> RebuildConvergence:
     del source
-    token = projector.resume_token()
-    latest = await change_source.latest_position(resume_after=token) if token else None
-    target = latest or boundary.change_stream_position
+    fence = fence_holder.pop("fence", None)
+    latest = await cast(Any, fence).latest_position() if fence is not None else None
+    target = latest
     if target is None:
-        return RebuildConvergence(backfill_upper_bound=boundary.backfill_upper_bound)
+        return RebuildConvergence(
+            backfill_upper_bound=boundary.backfill_upper_bound,
+            source_fence=latest,
+            projector_change_stream_position=projector.change_stream_position(),
+        )
 
     async def marker_ready() -> RebuildConvergence | None:
         marker = projector.change_stream_position()
         return (
             RebuildConvergence(
                 backfill_upper_bound=boundary.backfill_upper_bound,
+                source_fence=target,
                 projector_change_stream_position=marker,
             )
             if marker is not None
@@ -163,8 +174,12 @@ async def _wait_for_convergence(
 
 
 async def _capture_boundary(
-    source: MongoRebuildSource | PausedMongoSource, projector: SearchProjector
+    source: MongoRebuildSource | PausedMongoSource,
+    projector: SearchProjector,
+    change_source: MongoChangeStreamSource,
+    fence_holder: dict[str, object],
 ) -> RebuildBoundary:
+    fence_holder["fence"] = await change_source.begin_fence()
     return RebuildBoundary(
         await source.capture_backfill_upper_bound(), projector.change_stream_position()
     )
@@ -229,6 +244,9 @@ async def test_online_rebuild_proves_live_writes_convergence_and_atomic_cutover(
         projector, projector_task, _ = await _setup_projector(
             database, events, es, alias, namespace.suffix
         )
+        preallocated_event = _event("preallocated")
+        preallocated_document = event_to_document(preallocated_event)
+        preallocated_document["_id"] = ObjectId()
         seeds = [_event(label) for label in ("A", "B", "C")]
         await events.insert_many([event_to_document(event) for event in seeds])
         seed_ids = {event.event_id for event in seeds}
@@ -245,6 +263,7 @@ async def test_online_rebuild_proves_live_writes_convergence_and_atomic_cutover(
         change_source = MongoChangeStreamSource(events)
         adapter = ObservingAdapter(es)
         target_history: list[str | None] = []
+        fence_holder: dict[str, object] = {}
 
         async def set_live_target(target: str | None) -> None:
             target_history.append(target)
@@ -260,9 +279,11 @@ async def test_online_rebuild_proves_live_writes_convergence_and_atomic_cutover(
             source_collection=namespace.collection,
             batch_size=1,
             set_live_target=set_live_target,
-            capture_boundary=lambda: _capture_boundary(source, projector),
+            capture_boundary=lambda: _capture_boundary(
+                source, projector, change_source, fence_holder
+            ),
             wait_for_convergence=lambda boundary: _wait_for_convergence(
-                source, projector, change_source, boundary
+                source, projector, boundary, fence_holder
             ),
         )
         rebuild_task = asyncio.create_task(rebuilder.run())
@@ -271,14 +292,17 @@ async def test_online_rebuild_proves_live_writes_convergence_and_atomic_cutover(
         assert current is not None
         assert current.phase == RebuildPhase.BULK_INDEXING
         assert current.backfill_upper_bound is not None
+        assert preallocated_document["_id"] < ObjectId(current.backfill_upper_bound)
+        initial_projector_position = current.change_stream_position
         assert target_history == [current.target_index]
 
         live = [_event(label) for label in ("D", "E", "F")]
-        live_ids = {event.event_id for event in live}
-        live_started = datetime.now(UTC)
+        live_events = [preallocated_event, *live]
+        live_ids = {event.event_id for event in live_events}
+        source.release.set()
+        await asyncio.wait_for(source.backfill_complete.wait(), timeout=10)
+        await events.insert_one(preallocated_document)
         await events.insert_many([event_to_document(event) for event in live])
-        live_finished = datetime.now(UTC)
-        assert live_started <= live_finished
         await poll_until(
             "live events dual-written to candidate",
             lambda: _ids_ready(es, current.target_index, live_ids),
@@ -286,13 +310,15 @@ async def test_online_rebuild_proves_live_writes_convergence_and_atomic_cutover(
             interval_seconds=0.05,
         )
         assert not rebuild_task.done()
-        source.release.set()
+        assert source.backfill_complete.is_set()
+        source.after_backfill_release.set()
         result = await asyncio.wait_for(rebuild_task, timeout=30)
         assert result.phase == RebuildPhase.COMPLETED
         assert result.scanned_count == 3
         assert result.indexed_count == 3
         assert result.backfill_upper_bound is not None
         assert result.change_stream_position is not None
+        assert result.change_stream_position != initial_projector_position
         assert result.projector_change_stream_position is not None
         assert tuple(map(int, result.projector_change_stream_position.split(":", 1))) >= tuple(
             map(int, result.change_stream_position.split(":", 1))

@@ -16,10 +16,11 @@ from event_platform.storage.bootstrap import (
     StorageCollections,
     StorageSchemaError,
     bootstrap_storage,
+    storage_manifest,
     verify_storage,
 )
 from event_platform.storage.mongo import EventAlreadyExists, MongoEventStore
-from tests.integration.support import new_namespace, require_mongo
+from tests.integration.support import drop_database, new_namespace, require_mongo
 
 pytestmark = pytest.mark.integration
 
@@ -74,7 +75,10 @@ async def test_real_mongo_bootstrap_verification_uniqueness_and_query_plan() -> 
             *(bootstrap_storage(database, collections=collections) for _ in range(4))  # type: ignore[arg-type]
         )
         assert len({result.manifest_fingerprint for result in results}) == 1
-        assert all(result.verified_indexes == 10 for result in results)
+        expected_index_count = sum(
+            len(definitions) for definitions in storage_manifest(collections).indexes.values()
+        )
+        assert all(result.verified_indexes == expected_index_count for result in results)
         assert await bootstrap_storage(database, collections=collections) == results[0]  # type: ignore[arg-type]
 
         store = MongoEventStore(database[collections.events])
@@ -148,6 +152,6 @@ async def test_real_mongo_bootstrap_verification_uniqueness_and_query_plan() -> 
         assert incompatible.value.classification == "schema_version_incompatible"
     finally:
         try:
-            await database.drop()
+            await drop_database(client, database)
         finally:
             await client.close()

@@ -12,7 +12,7 @@ from time import monotonic
 from uuid import uuid4
 
 import pytest
-from elastic_transport import TransportError
+from elastic_transport import ApiError, TransportError
 from elasticsearch import AsyncElasticsearch
 from pymongo import AsyncMongoClient
 from pymongo.errors import PyMongoError
@@ -65,6 +65,44 @@ class IntegrationNamespace:
 
 class PollTimeout(TimeoutError):
     """A bounded integration poll did not observe its expected state."""
+
+
+async def drop_database(client: AsyncMongoClient[object], database: object) -> None:
+    """Drop a test database through the current PyMongo Async client API."""
+
+    name = getattr(database, "name", None)
+    if not isinstance(name, str) or not name:
+        raise ValueError("integration database name is invalid")
+    await client.drop_database(name)
+
+
+async def delete_es_index(client: AsyncElasticsearch, index: str) -> None:
+    """Delete an integration index, treating an already-clean state as success."""
+
+    try:
+        if any(character in index for character in "*?"):
+            matches = await client.indices.get(index=index)
+            concrete = [name for name in matches if isinstance(name, str)]
+            if not concrete:
+                return
+            await client.indices.delete(index=concrete)
+        else:
+            await client.indices.delete(index=index)
+    except ApiError as error:
+        status = getattr(getattr(error, "meta", None), "status", None)
+        if status != 404:
+            raise
+
+
+async def delete_es_alias(client: AsyncElasticsearch, *, index: str, alias: str) -> None:
+    """Delete an integration alias with explicit 404 handling."""
+
+    try:
+        await client.indices.delete_alias(index=index, name=alias)
+    except ApiError as error:
+        status = getattr(getattr(error, "meta", None), "status", None)
+        if status != 404:
+            raise
 
 
 def new_namespace() -> IntegrationNamespace:

@@ -16,6 +16,7 @@ from event_platform.search.projection import (
     SearchProjector,
 )
 from event_platform.search.search import ElasticsearchSearchService, SearchQuery
+from tests.integration.support import delete_es_alias, delete_es_index
 
 pytestmark = pytest.mark.integration
 
@@ -88,17 +89,17 @@ async def test_real_elasticsearch_mapping_and_search_path() -> None:
         assert [item.event_id for item in page.items] == [second.event_id]
         assert page.next_cursor
         next_page = await service.search(
-            SearchQuery(q="CAFE", limit=1, cursor=page.next_cursor), request_id=UUID(int=3)
+            SearchQuery(q="cafe", limit=1, cursor=page.next_cursor), request_id=UUID(int=3)
         )
         assert [item.event_id for item in next_page.items] == [first.event_id]
         assert next_page.next_cursor is None
     finally:
         try:
-            await client.indices.delete(index=physical, ignore_unavailable=True)
+            await delete_es_index(client, physical)
         except Exception:
             pass
         try:
-            await client.indices.delete_alias(index=physical, name=alias, ignore_unavailable=True)
+            await delete_es_alias(client, index=physical, alias=alias)
         except Exception:
             pass
         await client.close()

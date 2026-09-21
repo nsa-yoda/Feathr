@@ -21,9 +21,12 @@ The rebuild captures a majority-consistent Mongo ObjectId
 the bulk scan; it is not a commit-order watermark because a client can allocate
 an ObjectId before the insert commits. The change-stream projector writes each
 accepted event to the stable alias and candidate before saving its BSON resume
-token and ordered cluster-time `change_stream_position`. The reconciling phase
-waits for that change-stream position to reach the fence captured at the rebuild
-boundary. Therefore an insert whose preallocated `_id` is below the scan bound
+token. At target activation the rebuild also opens an independent Mongo
+change-stream cursor. After the bounded scan, that cursor is drained and its
+latest ordered `(seconds, increment)` `clusterTime` becomes the source fence.
+The projector must reach or exceed that fence before verification and cutover;
+the raw resume token remains an opaque restart cursor and is never numerically
+compared. Therefore an insert whose preallocated `_id` is below the scan bound
 but commits after the bound is captured is still delivered by the live stream
 and cannot fall between backfill and cutover.
 
@@ -43,7 +46,7 @@ At minimum require:
 
 - no unresolved permanent bulk/index failures;
 - target count is not below the canonical scan count and no unresolved failures remain;
-- the backfill upper bound and projector change-stream position are persisted and converged;
+- the backfill upper bound, independent source fence, and projector change-stream position are persisted and converged;
 - every canonical event ID through the boundary exists in the candidate;
 - mapping/settings fingerprint matches desired version;
 - sample/known-event checks pass where practical.

@@ -68,6 +68,7 @@ async def configured_rebuild_runtime(
     lease = None
     lease_store: MongoProjectionLeaseStore | None = None
     projector: SearchProjector | None = None
+    rebuild_fence = None
     try:
         database = mongo[settings.mongo_database]
         events = database[settings.mongo_collection]
@@ -95,6 +96,8 @@ async def configured_rebuild_runtime(
         projector_task = asyncio.create_task(projector.run_source(change_source))
 
         async def capture_boundary() -> RebuildBoundary:
+            nonlocal rebuild_fence
+            rebuild_fence = await change_source.begin_fence()
             upper = await source.capture_backfill_upper_bound()
             position = projector.change_stream_position()
             if upper is not None and position is None:
@@ -109,17 +112,24 @@ async def configured_rebuild_runtime(
             return RebuildBoundary(upper, position)
 
         async def wait_for_convergence(boundary: RebuildBoundary) -> RebuildConvergence:
-            token = projector.resume_token()
-            latest = await change_source.latest_position(resume_after=token) if token else None
-            target = latest or boundary.change_stream_position
+            nonlocal rebuild_fence
+            fence = rebuild_fence
+            rebuild_fence = None
+            source_fence = await fence.latest_position() if fence is not None else None
+            target = source_fence
             if target is None:
-                return RebuildConvergence(backfill_upper_bound=boundary.backfill_upper_bound)
+                return RebuildConvergence(
+                    backfill_upper_bound=boundary.backfill_upper_bound,
+                    source_fence=None,
+                    projector_change_stream_position=projector.change_stream_position(),
+                )
             deadline = asyncio.get_running_loop().time() + settings.dependency_timeout_seconds * 12
             while True:
                 marker = projector.change_stream_position()
                 if _at_or_after(marker, target):
                     return RebuildConvergence(
                         backfill_upper_bound=boundary.backfill_upper_bound,
+                        source_fence=source_fence,
                         projector_change_stream_position=marker,
                     )
                 if asyncio.get_running_loop().time() >= deadline:

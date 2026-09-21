@@ -106,6 +106,9 @@ poll_json() {
 
 poll_json "$query_url" query 'smoke canonical query deadline exceeded' \
   --arg id "$event_id" '.items | any(.[]; .event_id == $id)'
+poll_json "$base_url/events/stats?bucket=hour" analytics \
+  'smoke analytics deadline exceeded' \
+  '.points | any(.[]; .event_type == "smoke.event" and .count > 0)'
 poll_json "$base_url/events/search?q=compose-smoke&event_type=smoke.event&limit=50" search \
   'smoke search projection deadline exceeded' --arg id "$event_id" \
   '.items | any(.[]; .event_id == $id)'

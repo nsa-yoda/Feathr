@@ -11,7 +11,7 @@ from pymongo import AsyncMongoClient
 
 from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.storage.mongo import EventAlreadyExists, EventQuery, MongoEventStore
-from tests.integration.support import new_namespace, require_mongo
+from tests.integration.support import drop_database, new_namespace, require_mongo
 
 pytestmark = pytest.mark.integration
 
@@ -135,6 +135,6 @@ async def test_real_mongo_indexes_uniqueness_fetch_and_ordering() -> None:
         }
     finally:
         try:
-            await database.drop()
+            await drop_database(client, database)
         finally:
             await client.close()

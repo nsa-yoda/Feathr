@@ -12,9 +12,10 @@ uv run --locked python -m event_platform.cli search rebuild --confirm
 the Mongo canonical source, projector, rebuild lease/state store, and Elasticsearch
 adapter itself. Run it only while the MongoDB replica set and Elasticsearch are
 reachable. It activates projector dual-write, captures a majority-consistent
-ObjectId backfill bound plus an ordered change-stream position, waits for the
-projector to converge through that position, verifies event identities, and swaps
-the stable alias with one Elasticsearch aliases request.
+ObjectId backfill bound, opens an independent change-stream fence cursor, waits
+for the projector's lossless ordered `clusterTime` position to converge through
+the drained source fence, verifies event identities, and swaps the stable alias
+with one Elasticsearch aliases request.
 
 ## Operator expectations
 
@@ -38,9 +39,11 @@ ELASTICSEARCH_URL='http://localhost:9200' \
 .venv/bin/pytest -q tests/integration/test_rebuild_live.py
 ```
 
-The lifecycle test pauses the first canonical backfill scan, writes D/E/F while
-the candidate is dual-written, proves the backfill-bound/change-stream-position
-convergence and identity set, observes one atomic alias swap, writes G after
+The lifecycle test pauses the first canonical backfill scan, commits an event
+whose ObjectId was allocated before rebuild but only after the bounded scan,
+writes
+D/E/F while the candidate is dual-written, proves the independent source-fence
+and projector convergence plus identity set, observes one atomic alias swap, writes G after
 cutover, and exercises verification, alias-swap, and post-swap persistence
 failures. The test skips only when these explicitly supplied services are not
 available.

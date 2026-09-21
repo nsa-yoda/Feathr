@@ -13,6 +13,7 @@ from redis.exceptions import RedisError
 from event_platform.cache.realtime import RealtimeStatsService, RedisCache, cache_key
 from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.storage.mongo import MongoEventStore, event_to_document
+from tests.integration.support import drop_database
 
 pytestmark = pytest.mark.integration
 
@@ -77,7 +78,7 @@ async def test_real_mongo_redis_realtime_cache_miss_hit_lifecycle() -> None:
         except (ConnectionError, OSError, RedisError):
             pass
         try:
-            await database.drop()
+            await drop_database(mongo, database)
         except (ConnectionError, OSError, PyMongoError):
             pass
         await redis.aclose()

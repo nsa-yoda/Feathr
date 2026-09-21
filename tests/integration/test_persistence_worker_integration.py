@@ -13,7 +13,7 @@ from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.queue import InProcessQueue
 from event_platform.storage.mongo import MongoEventStore
 from event_platform.worker import PersistenceWorker
-from tests.integration.support import new_namespace, require_mongo
+from tests.integration.support import drop_database, new_namespace, require_mongo
 
 pytestmark = pytest.mark.integration
 
@@ -60,6 +60,6 @@ async def test_real_mongo_worker_ack_and_idempotent_replay() -> None:
         assert (await collection.count_documents({})) == 1
     finally:
         try:
-            await database.drop()
+            await drop_database(client, database)
         finally:
             await client.close()

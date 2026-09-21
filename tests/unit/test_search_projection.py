@@ -784,6 +784,23 @@ async def test_change_stream_latest_position_is_an_ordered_operation_watermark()
 
 
 @pytest.mark.asyncio
+async def test_change_stream_fence_uses_an_independent_cursor_and_cluster_time() -> None:
+    collection = StreamCollection(
+        FakeStream(
+            [
+                {"_id": {"opaque": "resume"}, "clusterTime": Timestamp(11, 2)},
+                {"_id": {"opaque": "resume-2"}, "clusterTime": Timestamp(11, 5)},
+            ]
+        )
+    )
+    source = MongoChangeStreamSource(collection)  # type: ignore[arg-type]
+    fence = await source.begin_fence()
+    assert await fence.latest_position() == "11:5"
+    assert "resume_after" not in collection.kwargs
+    assert collection.kwargs["max_await_time_ms"] == 1_000
+
+
+@pytest.mark.asyncio
 async def test_change_stream_rejects_malformed_changes_and_invalid_history() -> None:
     malformed = StreamCollection(FakeStream([{"_id": {"x": 1}}]))
     with pytest.raises(ProjectionError, match="change_malformed"):

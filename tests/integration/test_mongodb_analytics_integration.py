@@ -12,7 +12,7 @@ from pymongo import AsyncMongoClient
 from event_platform.api.routes.stats import AnalyticsRange, build_stats_pipeline
 from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.storage.mongo import MongoEventStore
-from tests.integration.support import new_namespace, require_mongo
+from tests.integration.support import drop_database, new_namespace, require_mongo
 
 pytestmark = pytest.mark.integration
 
@@ -114,6 +114,6 @@ async def test_real_mongo_date_trunc_counts_hour_day_and_monday_week() -> None:
         ]
     finally:
         try:
-            await database.drop()
+            await drop_database(client, database)
         finally:
             await client.close()
