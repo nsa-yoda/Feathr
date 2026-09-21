@@ -1,5 +1,9 @@
 # Distributed Event Processing Platform
 
+<p align="center">
+  <img src="logo.png" alt="Feathr Distributed Event Processing Platform" width="640">
+</p>
+
 [![CI](https://github.com/nsa-yoda/Feathr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nsa-yoda/Feathr/actions/workflows/ci.yml)
 [![Release validation](https://github.com/nsa-yoda/Feathr/actions/workflows/release.yml/badge.svg)](https://github.com/nsa-yoda/Feathr/actions/workflows/release.yml)
 

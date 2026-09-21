@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
 README = ROOT / "README.md"
+LOGO = ROOT / "logo.png"
 ARCH = ROOT / "ARCHITECTURE.md"
 TRACE = ROOT / "docs/requirements-traceability.md"
 AI_LOG = ROOT / "docs/ai-workflow-log.md"
@@ -35,6 +36,12 @@ def test_readme_has_reviewer_workflow_and_ai_section() -> None:
     assert "Human judgment remained authoritative" in text
     assert "The final submission documentation includes:" in text
     assert "will also include" not in text
+
+
+def test_readme_references_the_project_logo() -> None:
+    text = README.read_text()
+    assert LOGO.is_file()
+    assert '<img src="logo.png"' in text
 
 
 def test_architecture_preserves_canonical_and_runtime_boundaries() -> None:
