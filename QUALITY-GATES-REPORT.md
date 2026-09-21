@@ -95,7 +95,8 @@ service-backed suites.
 ## 6. Release/tag behavior and artifacts
 
 `.github/workflows/release.yml` runs for `v*.*.*` tags (and manual dispatch),
-repeats static/unit/failure/coverage and Compose/Docker validation, then emits:
+repeats static/unit/failure/coverage, clean Compose smoke, required real-service
+integration/acceptance/E2E/performance gates, and Docker validation, then emits:
 
 - `coverage/coverage.xml`;
 - `artifacts/release/BUILD-METADATA.json` containing version, Git SHA, and UTC build time;
