@@ -1,4 +1,4 @@
-.PHONY: format-check lint typecheck dependency-check test-unit test-functional test-integration test-integration-required test-acceptance-required test-e2e-required test-failure check-source-archive all coverage performance release-verify compose-config compose-up compose-down compose-reset smoke postman rebuild-status rebuild-demo
+.PHONY: format-check lint typecheck dependency-check test-unit test-functional test-integration test-integration-required test-acceptance-required test-e2e-required test-failure check-source-archive all coverage performance performance-load release-verify compose-config compose-up compose-down compose-reset smoke postman rebuild-status rebuild-demo
 
 format-check:
 	uv run --locked ruff format --check src tests
@@ -47,6 +47,9 @@ coverage:
 
 performance:
 	uv run --locked python scripts/performance
+
+performance-load:
+	PERF_PROFILE=load uv run --locked python scripts/performance
 
 release-verify:
 	./scripts/release-verify

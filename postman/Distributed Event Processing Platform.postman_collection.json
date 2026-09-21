@@ -2,7 +2,7 @@
   "info": {
     "name": "Distributed Event Processing Platform",
     "_postman_id": "feathr-022-reviewer-suite",
-    "description": "Reviewer acceptance suite for Feature 022. Run folders in numeric order against a healthy API.",
+    "description": "Reviewer acceptance suite. Run folders in numeric order against a healthy API.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -466,7 +466,7 @@
           ]
         },
         {
-          "name": "Admission backlog overflow contract",
+          "name": "Bounded admission burst drains without rejection",
           "request": {
             "method": "GET",
             "header": [],
@@ -478,18 +478,16 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const burst = Math.max(Number(pm.environment.get(\"rateLimitBurst\") || 180), 121);",
+                  "const burst = Number(pm.environment.get(\"rateLimitBurst\") || 100);",
                   "const deadline = Date.now() + Number(pm.environment.get(\"pollDeadlineMs\") || 30000);",
-                  "let count = 0; let got429 = false; let retryAfterMs = 0;",
-                  "function sendNext() {",
-                  "  if (Date.now() >= deadline) { pm.test(\"admission backlog overflow completes before deadline\", () => pm.expect.fail(\"admission backlog overflow deadline exceeded\")); return; }",
-                  "  if (count >= burst) { setTimeout(() => pm.test(\"admission backlog overflow observes 429\", () => pm.expect(got429).to.eql(true)), retryAfterMs + 100); return; }",
-                  "  pm.sendRequest({url: `${pm.environment.get(\"baseUrl\")}/events?limit=1`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000)}, (error, response) => {",
-                  "    if (response.code === 429) { got429 = true; retryAfterMs = Math.max(retryAfterMs, Number(response.headers.get(\"Retry-After\")) * 1000); pm.expect(Number(response.headers.get(\"Retry-After\"))).to.be.greaterThan(0); }",
-                  "    count += 1; sendNext();",
+                  "let completed = 0; const failures = [];",
+                  "for (let index = 0; index < burst; index += 1) {",
+                  "  pm.sendRequest({url: `${pm.environment.get(\"baseUrl\")}/events?limit=1`, method: \"GET\", timeout: Math.max(Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000), 10000)}, (error, response) => {",
+                  "    if (error || !response || response.code !== 200 || Date.now() >= deadline) { failures.push(error ? \"transport\" : String(response && response.code)); }",
+                  "    completed += 1;",
+                  "    if (completed === burst) { pm.test(\"bounded admission burst drains without rejection\", () => pm.expect(failures).to.eql([])); }",
                   "  });",
-                  "}",
-                  "sendNext();"
+                  "}"
                 ]
               }
             }

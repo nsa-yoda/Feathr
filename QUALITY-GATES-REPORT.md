@@ -1,152 +1,149 @@
 # Quality Gates Report
 
-## 1. Test layers implemented
+Last verified: 2026-09-21
 
-The repository now has explicit, registered pytest layers and local commands:
+## 1. Test layers implemented
 
 | Layer | Location / command | Purpose |
 |---|---|---|
-| Unit | `tests/unit`, `make test-unit` | Isolated domain, queue, lifecycle, storage, projection, CLI, and configuration semantics |
-| Functional | `tests/functional`, `make test-functional` | HTTP routing, middleware, validation, problem responses, OpenAPI, and accepted ingestion |
-| Failure | `tests/failure`, `make test-failure` | Deterministic dependency outages, retries, ownership loss, and recovery |
+| Unit | `tests/unit`, `make test-unit` | Domain, queue, lifecycle, storage, projection, CLI, configuration, and tooling semantics |
+| Functional | `tests/functional`, `make test-functional` | HTTP routing, middleware, validation, errors, OpenAPI, and accepted ingestion |
+| Failure | `tests/failure`, `make test-failure` | Deterministic outages, retries, ownership loss, and recovery |
 | Integration | `tests/integration`, `make test-integration-required` | Real MongoDB replica set, Elasticsearch, Redis, change streams, bootstrap, analytics, and projection |
-| Acceptance | `tests/integration/test_rebuild_live.py`, `make test-acceptance-required` | Online rebuild, live writes, convergence, fencing, verification, and atomic alias cutover |
-| E2E | `tests/e2e`, `make test-e2e-required` | Black-box HTTP ingestion, idempotency, canonical query, search, stats, and realtime lifecycle |
-| Performance | `scripts/performance`, `make performance` | Bounded HTTP regression probe with p50/p95/p99, throughput sample, and error count |
+| Acceptance | `tests/integration/test_rebuild_live.py`, `make test-acceptance-required` | Online rebuild, live writes, convergence, fencing, identity verification, and atomic alias cutover |
+| E2E | `tests/e2e`, `make test-e2e-required` | Black-box HTTP ingestion, idempotency, Mongo query, search, stats, and realtime lifecycle |
+| Postman | `postman`, `make postman` | Reviewer API contract and demo flow through repository-pinned Newman 6.2.2 |
+| Performance sanity | `scripts/performance`, `make performance` | Stable latency, throughput, error-rate, and convergence gate |
+| Bounded load | `scripts/performance`, `make performance-load` | 500-event concurrent ingestion plus Mongo/Elasticsearch identity reconciliation |
 | Smoke | `scripts/smoke`, `make smoke` | Clean Compose readiness and critical event lifecycle |
 | Release | `.github/workflows/release.yml`, `make release-verify` | Tagged-version quality, Docker build, archive, metadata, and checksums |
 
-Markers are strict and registered for `unit`, `functional`, `integration`,
+Pytest markers are strict and registered for `unit`, `functional`, `integration`,
 `acceptance`, `e2e`, `failure`, `performance`, `smoke`, `security`, and `release`.
 
-## 2. Test counts and coverage
+## 2. Current counts and coverage
 
-- Baseline before structural changes (`a47a81d` verification baseline): 397 unit,
-  29 failure, and 13 dependency-optional integration cases collected; `make all`
-  passed.
-- Current local backend run: **441 tests passed** across unit, functional, and
-  failure selections, including the process lifecycle test.
-- Service-backed integration: **13 passed**, with no skips in the required gate.
-- Online rebuild acceptance: **2 passed**, with no skips.
-- Black-box E2E: **1 passed** against the clean Compose stack.
-- Branch-aware backend coverage: **85% baseline to 90% current**, enforced by
-  `make coverage` with a 90% floor. The report includes unit, functional, and
-  failure tests and writes `coverage/coverage.xml`.
+- Complete repository collection: **481 tests**.
+- Branch-aware backend coverage selection: **467 passed** across unit, functional,
+  and failure tests.
+- Backend coverage: **91%**, enforced by `make coverage` with a **90% minimum**.
+- Required service-backed integration: **13 passed**, no skips.
+- Online rebuild acceptance: **2 passed**, no skips.
+- Black-box E2E: **1 passed**.
+- Repository-managed Postman: **124 requests and 45 assertions passed**.
 
-The remaining uncovered code is concentrated in dependency-specific lifecycle
-branches that require a live failure or cancellation at an exact network boundary:
-`main.py` (80%), `search/rebuild_runtime.py` (54%), `search/rebuild.py` (85%),
-`search/projection.py` (85%), and `storage/change_stream.py` (80%). These are
-covered by real integration/acceptance gates where possible; the remaining lines
-are cleanup, transport-exception, or process-cancellation branches that cannot be
-meaningfully exercised by a deterministic local unit test without replacing the
-service boundary. No broad `no cover` exclusions were added.
+Coverage measures `src/event_platform` with branch tracking and writes
+`coverage/coverage.xml`. The remaining 393 uncovered statements and 154 partial
+branches are concentrated in exact transport cancellation/failure timing and
+dependency-specific lifecycle branches. Those risks are also exercised through
+real-service integration, acceptance, smoke, and failure gates. No broad coverage
+exclusions or threshold reductions were used.
 
-## 3. Integration, E2E, and acceptance results
+## 3. Clean service-backed validation
 
-The clean service run used empty Compose volumes and current pinned services:
+The current run started from empty Compose volumes:
 
-1. `docker compose down -v --remove-orphans`
-2. `docker compose build`
-3. `docker compose up -d`
-4. `make smoke` — passed ingestion, Mongo persistence/query, Elasticsearch search,
-   Mongo stats, and Redis realtime stats.
-5. `make test-integration-required` — 13 passed.
-6. `make test-acceptance-required` — 2 passed, including online rebuild live-write
-   convergence and failure-boundary evidence.
-7. `make test-e2e-required` — 1 passed.
+1. `docker compose --env-file .env.example down -v --remove-orphans`
+2. `docker compose --env-file .env.example build`
+3. `docker compose --env-file .env.example up -d`
+4. `SMOKE_DEADLINE_SECONDS=180 make smoke` — passed for event
+   `424a3410-fe49-4795-b0dd-b4090f9b590b`.
+5. `make postman` — 124 requests, 45 assertions, zero failures.
+6. `make test-integration-required` — 13 passed.
+7. `make test-acceptance-required` — 2 passed.
+8. `make test-e2e-required` — 1 passed.
 
-The E2E test uses a current UTC event timestamp so the realtime window assertion
-tests the intended contract instead of a stale fixture.
+The smoke lifecycle verified liveness, readiness, Mongo bootstrap, accepted
+ingestion, async worker persistence, canonical query, Mongo analytics,
+Elasticsearch projection/search, and Redis realtime statistics.
 
-## 4. Performance baseline
+## 4. Performance evidence
 
-`PERF_BASE_URL=http://127.0.0.1:8000 PERF_REQUESTS=10 make performance` passed with
-zero errors. Recorded p95 latency was:
+### Stable CI profile
+
+`PERF_REQUESTS=10 make performance` passed with zero errors, all 10 accepted IDs
+visible in MongoDB and Elasticsearch, 67.98 accepted events/second, and 0.296
+seconds to end-to-end convergence.
 
 | Route | p50 | p95 | p99 |
 |---|---:|---:|---:|
-| POST `/events` | 9.87 ms | 13.18 ms | 13.18 ms |
-| GET `/events` | 49.87 ms | 53.27 ms | 53.27 ms |
-| GET `/events/stats` | 200.79 ms | 208.84 ms | 208.84 ms |
-| GET `/events/search` | 200.10 ms | 227.17 ms | 227.17 ms |
-| GET `/events/stats/realtime` | 199.38 ms | 203.29 ms | 203.29 ms |
+| POST `/events` | 13.60 ms | 22.26 ms | 22.26 ms |
+| GET `/events` | 50.07 ms | 53.21 ms | 53.21 ms |
+| GET `/events/stats` | 199.60 ms | 217.75 ms | 217.75 ms |
+| GET `/events/search` | 194.23 ms | 214.83 ms | 214.83 ms |
+| GET `/events/stats/realtime` | 198.78 ms | 206.15 ms | 206.15 ms |
 
-The probe is intentionally a stable sanity gate rather than a production load
-benchmark. Larger scheduled load tests should be added when a representative CI
-runner and traffic profile are selected.
+### Bounded load profile
 
-## 5. CI workflows and gates
+`make performance-load` sent 500 unique events with concurrency 50. All 500 were
+accepted, persisted, and found by exact event identity through both the canonical
+Mongo query and Elasticsearch search. The run completed ingestion in 5.015
+seconds at 99.70 accepted events/second, reached full derived-state convergence
+in 2.164 additional seconds, and recorded zero errors across 600 measured HTTP
+requests. POST `/events` p95 was 507.78 ms; read-route p95 values were between
+51.54 ms and 211.57 ms.
 
-`.github/workflows/ci.yml` now has:
+This is meaningful assignment-scale regression evidence for the required
+in-process queue. It is not a production capacity or SLO claim. Production
+capacity thresholds require representative deployment hardware, traffic shape,
+and an agreed service objective; the documented SQS migration path remains a
+future production evolution, not a replacement for the assignment queue.
 
-- a fast quality job for locked installation, formatting, Ruff, MyPy, dependency
-  consistency, source-archive hygiene, unit/functional/failure tests, coverage,
-  and diff checks;
-- a service job that resets Compose, runs smoke, required integration and
-  acceptance suites, E2E, and performance, then uploads Compose logs and results;
-- a Docker job for Compose validation and production image builds;
-- least-privilege read permissions, concurrency cancellation, timeouts, locked
-  dependency caching, and failure artifact capture.
+## 5. CI and release gates
 
-The required gates do not use `continue-on-error` and fail on skipped cases in
-service-backed suites.
+`.github/workflows/ci.yml` enforces locked installation, formatting, Ruff, MyPy,
+dependency consistency, archive hygiene, unit/functional/failure tests, branch
+coverage, Compose configuration, clean smoke, required integration, rebuild
+acceptance, E2E, repository-managed Postman, stable performance, and Docker builds.
+Required gates do not use `continue-on-error` or convert skips into success.
 
-## 6. Release/tag behavior and artifacts
+`.github/workflows/performance.yml` runs the 500-event profile weekly and on
+demand, uploads the JSON result and Compose logs, and always tears down volumes.
 
-`.github/workflows/release.yml` runs for `v*.*.*` tags (and manual dispatch),
-repeats static/unit/failure/coverage, clean Compose smoke, required real-service
-integration/acceptance/E2E/performance gates, and Docker validation, then emits:
+Tags matching `v*.*.*` run `.github/workflows/release.yml`, which repeats the
+mandatory gates and the bounded load profile before emitting:
 
 - `coverage/coverage.xml`;
-- `artifacts/release/BUILD-METADATA.json` containing version, Git SHA, and UTC build time;
-- a versioned `git archive` source tarball;
-- `SHA256SUMS` for release files.
+- `artifacts/performance.json` and `artifacts/performance-load.json`;
+- `artifacts/release/BUILD-METADATA.json` with version, Git SHA, and UTC build time;
+- a versioned source archive and SHA-256 checksums;
+- Compose logs.
 
-The workflow does not claim an SBOM unless a future release environment supplies a
-trusted SBOM generator. Adding one is a release-tooling task, not a silent CI skip.
-
-## 7. Exact validation commands and results
-
-Passed:
+## 6. Exact latest commands and results
 
 ```text
-make format-check                 (native .venv equivalent: PASS)
-make lint                         (native .venv equivalent: PASS)
-make typecheck                    PASS
-make dependency-check             uv lock --check + uv pip check: PASS
-git diff --check                  PASS
-.venv/bin/pytest -q tests/unit tests/functional tests/failure  441 passed
-.venv/bin/coverage ...            90%, fail-under=90, coverage.xml written
-docker compose config             PASS
-docker compose down -v ...        PASS
-docker compose build              PASS
-docker compose up -d              PASS
-make smoke                        PASS
-make test-integration-required    13 passed
-make test-acceptance-required     2 passed
-make test-e2e-required            1 passed
-make performance                  PASS, zero errors
+make format-check                                                PASS, 142 files
+make lint                                                        PASS
+make typecheck                                                   PASS, 60 source files
+make dependency-check                                            PASS
+make check-source-archive                                        PASS
+make compose-config                                               PASS
+make test-unit                                                   PASS, 435 tests
+make test-functional                                             PASS, 3 tests
+make test-failure                                                PASS, 29 tests
+docker compose --env-file .env.example down -v --remove-orphans   PASS
+docker compose --env-file .env.example build                      PASS
+docker compose --env-file .env.example up -d                      PASS
+SMOKE_DEADLINE_SECONDS=180 make smoke                             PASS
+make postman                                                     PASS, 124 requests / 45 assertions
+make test-integration-required                                   PASS, 13 tests
+make test-acceptance-required                                    PASS, 2 tests
+make test-e2e-required                                           PASS, 1 test
+PERF_REQUESTS=10 make performance                                PASS, 0 errors
+make performance-load                                            PASS, 500/500 converged, 0 errors
+make coverage                                                    PASS, 467 tests, 91%, floor 90%
+.venv/bin/pytest --collect-only -q                               PASS, 481 collected
+git diff --check                                                 PASS
 ```
 
-The repository `uv run` wrapper could not use the host's default uv cache in the
-restricted shell, so static commands were executed with the locked `.venv`
-equivalents; `uv lock --check` and `uv pip check` were also run directly and
-passed. `make postman` remains environment-dependent because Newman is not
-installed in this workspace; the repository script reports that missing tool with
-nonzero status rather than hiding it. The Postman collection remains a separate
-reviewer gate.
+Static, type, dependency, archive, Compose configuration, and diff checks are
+rerun before every commit that updates this record.
 
-## 8. Deliberately deferred work and trigger
+## 7. Deliberate future trigger
 
-- **Heavy load testing:** add a scheduled/manual Locust or k6 profile when a
-  representative runner and target throughput/SLO are agreed; the lightweight
-  probe already protects against obvious regressions.
-- **SBOM generation:** add Syft or Docker SBOM generation when the release
-  environment standardizes the approved generator and artifact schema.
-- **Automated dependency vulnerability scanning:** add a pinned scanner when the
-  project selects an advisory database policy; lock consistency and image/build
-  validation are enforced now.
-- **Browser UI E2E:** add Playwright only when UI behavior becomes a release
-  acceptance contract; the current required black-box API flows cover the
-  backend guarantees and the static UI remains smoke-tested through Compose.
+The bounded load profile closes the repository's assignment-scale performance
+evidence gap. A sustained multi-host production capacity program should be added
+only when target hardware, workload distribution, and SLOs exist; at that point
+it should include soak duration, resource saturation, and durable-queue testing.
+That future program does not change the assignment's explicit requirement for a
+simulated in-process queue in this repository.

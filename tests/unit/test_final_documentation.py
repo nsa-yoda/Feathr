@@ -136,8 +136,8 @@ def test_final_checklist_records_static_completion_and_live_conditions() -> None
     text = CHECKLIST.read_text()
     assert "## Evidence conditions" in text
     assert "Postman demo flow passes" in text
-    assert "smoke test passes from clean stack" in text
+    assert "smoke test passes from clean empty-volume stack" in text
     assert "- [x] README and ARCHITECTURE match code" in text
     assert "no positive exactly-once guarantee" in text
-    assert "11 explicit service-gated skips" in text
+    assert "13 passed, no skips" in text
     assert "online ES rebuild works" in text

@@ -75,6 +75,7 @@ jobs:
       - run: MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' ELASTICSEARCH_URL='http://127.0.0.1:9200' REDIS_URL='redis://127.0.0.1:6379/0' make test-integration-required
       - run: MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' ELASTICSEARCH_URL='http://127.0.0.1:9200' REDIS_URL='redis://127.0.0.1:6379/0' make test-acceptance-required
       - run: E2E_BASE_URL='http://127.0.0.1:8000' make test-e2e-required
+      - run: make postman
       - run: PERF_BASE_URL='http://127.0.0.1:8000' PERF_REQUESTS=10 make performance
       - if: always()
         run: docker compose --env-file .env.example ps && docker compose --env-file .env.example logs --no-color > compose.log

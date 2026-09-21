@@ -5,6 +5,8 @@ from pathlib import Path
 ROOT = Path(__file__).parents[2]
 MAKEFILE = ROOT / "Makefile"
 WORKFLOW = ROOT / ".github/workflows/ci.yml"
+PERFORMANCE_WORKFLOW = ROOT / ".github/workflows/performance.yml"
+RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
 README = ROOT / "README.md"
 
 
@@ -19,6 +21,7 @@ def test_makefile_exposes_locked_quality_and_lifecycle_targets() -> None:
         "test-failure",
         "all",
         "coverage",
+        "performance-load",
         "compose-config",
         "compose-up",
         "compose-down",
@@ -70,6 +73,7 @@ def test_ci_runs_independent_locked_static_tests_and_artifacts() -> None:
         "make test-failure",
         "make test-integration-required",
         "make test-e2e-required",
+        "make postman",
     ):
         assert command in text
     assert "cache-dependency-glob: uv.lock" in text
@@ -92,3 +96,15 @@ def test_readme_documents_reproducible_workflow_and_rebuild_cli() -> None:
     assert "make smoke" in text and "make postman" in text
     assert "Python `>=3.12`" in text and "uv.lock" in text
     assert "application image" in text and "Python 3.14.7-slim" in text
+
+
+def test_bounded_load_runs_on_schedule_and_before_release_artifacts() -> None:
+    performance = PERFORMANCE_WORKFLOW.read_text()
+    release = RELEASE_WORKFLOW.read_text()
+    assert "workflow_dispatch:" in performance and "schedule:" in performance
+    assert "make performance-load" in performance
+    assert "artifacts/performance-load.json" in performance
+    assert "down -v --remove-orphans" in performance
+    assert "make postman" in release
+    assert "make performance-load" in release
+    assert "artifacts/performance-load.json" in release

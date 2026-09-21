@@ -1,15 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-collection='postman/Distributed Event Processing Platform.postman_collection.json'
-environment='postman/Local Docker.postman_environment.json'
-if ! command -v newman >/dev/null; then
-  echo 'postman gate requires Newman on PATH (npm install --global newman)' >&2
-  exit 2
-fi
+script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root_dir="${POSTMAN_ROOT:-$script_root}"
+collection="$root_dir/postman/Distributed Event Processing Platform.postman_collection.json"
+environment="$root_dir/postman/Local Docker.postman_environment.json"
+tool_dir="$root_dir/tools/postman"
 if [[ ! -f "$collection" || ! -f "$environment" ]]; then
   echo 'postman collection or environment is missing' >&2
   exit 2
 fi
 
-exec newman run "$collection" -e "$environment" "$@"
+newman_bin="${NEWMAN_BIN:-$tool_dir/node_modules/.bin/newman}"
+if [[ ! -x "$newman_bin" ]]; then
+  if [[ "${POSTMAN_AUTO_INSTALL:-1}" != '1' ]]; then
+    echo 'repository-managed Newman is not installed; run npm ci --prefix tools/postman' >&2
+    exit 2
+  fi
+  if ! command -v npm >/dev/null; then
+    echo 'npm is required to install the repository-managed Newman runner' >&2
+    exit 2
+  fi
+  npm ci --prefix "$tool_dir" --ignore-scripts --no-audit --no-fund
+fi
+if [[ ! -x "$newman_bin" ]]; then
+  echo 'repository-managed Newman installation did not produce an executable' >&2
+  exit 2
+fi
+
+exec "$newman_bin" run "$collection" -e "$environment" "$@"

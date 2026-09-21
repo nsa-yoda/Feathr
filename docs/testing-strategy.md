@@ -68,8 +68,11 @@ The taxonomy is explicit and markers are registered in `pyproject.toml`:
   and Redis suite and fails if a case is skipped;
 - `make test-acceptance-required` runs the service-backed online rebuild contract;
 - `make test-e2e-required` exercises the running API as a black box;
-- `make performance` records p50/p95/p99 and error counts in
-  `artifacts/performance.json` against a running stack;
+- `make performance` records p50/p95/p99, throughput, error rate, and canonical/
+  search convergence in `artifacts/performance.json` against a running stack;
+- `make performance-load` runs the bounded 500-event, 50-concurrency profile,
+  reconciles every accepted event ID through MongoDB and Elasticsearch, and writes
+  `artifacts/performance-load.json`; it runs weekly/on demand and for tagged releases;
 - `make smoke` verifies clean Compose startup, readiness, ingestion, canonical
   query, projection, analytics, and realtime statistics.
 

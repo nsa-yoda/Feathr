@@ -34,8 +34,8 @@
 - [x] Mongo replica set initializes automatically
 - [x] UI is included and useful
 - [x] Postman collection/environment import cleanly
-- [x] Postman demo flow passes (205 requests and 45 assertions via ephemeral Newman on Colima)
-- [x] smoke test passes from clean stack (Colima Docker context)
+- [x] Postman demo flow passes (124 requests and 45 assertions via repository-pinned Newman 6.2.2)
+- [x] smoke test passes from clean empty-volume stack (Colima Docker context)
 
 ## Quality
 
@@ -43,7 +43,7 @@
 - [x] lint
 - [x] static typing
 - [x] unit tests
-- [x] integration test selection (11 explicit service-gated skips without endpoints; live execution remains required)
+- [x] required service-backed integration suite (13 passed, no skips)
 - [x] failure tests
 - [x] no Blocker/Critical review findings
 - [x] requirements traceability completed
@@ -52,4 +52,15 @@
 
 ## Evidence conditions
 
-Static, unit, failure, and contract evidence is checked in the feature reports and `CODEX_WORK.LOG`. The dedicated service-backed rebuild acceptance was executed on 2026-09-20 against the Compose MongoDB replica set and Elasticsearch using `MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' ELASTICSEARCH_URL='http://127.0.0.1:9200' .venv/bin/pytest -q tests/integration/test_rebuild_live.py`: 2 passed. It deterministically held the backfill, inserted D/E/F during candidate dual-write, proved high-water/projector convergence and identity coverage, observed one atomic alias swap, inserted G after cutover, and passed verification, alias-swap, and post-swap persistence failure cases. The executable guarded CLI was also run against a uniquely isolated real Mongo/Elasticsearch namespace and completed successfully. The checklist item is checked only on this evidence; the broader integration collection still has unrelated legacy cleanup/API compatibility failures documented in `CODEX_WORK.LOG`.
+Static, unit, failure, and contract evidence is checked in the quality report and
+`CODEX_WORK.LOG`. On 2026-09-21 the repository was reset to empty Compose volumes,
+built, and started before the smoke, Postman, complete integration, rebuild
+acceptance, E2E, stable performance, and 500-event load gates were executed. The
+integration suite passed 13 tests with no skips. The dedicated rebuild acceptance
+passed 2 tests: it deterministically held backfill, inserted live writes during
+candidate dual-write, proved source-fence/projector convergence and identity
+coverage, observed one atomic alias swap, verified post-cutover writes, and covered
+verification, alias-swap, and post-swap persistence failures. The bounded load run
+accepted 500 unique events and reconciled every event ID through MongoDB and
+Elasticsearch before passing. Exact commands and results are recorded in
+`FINAL_VALIDATION_RECORD.md` and `QUALITY-GATES-REPORT.md`.

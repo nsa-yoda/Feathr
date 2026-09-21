@@ -233,8 +233,9 @@ Tests are layered by failure radius. Pure business and state-machine semantics a
 | E2E | `E2E_BASE_URL=http://localhost:8000 make test-e2e-required` | Black-box ingestion/query/search/statistics flows |
 | Coverage | `make coverage` | Branch-aware backend coverage with a 90% enforced floor |
 | Smoke | `make smoke` | Clean-stack readiness and ingest-to-query lifecycle |
-| Performance | `PERF_BASE_URL=http://localhost:8000 make performance` | Lightweight p50/p95/p99 regression probe |
-| Postman | `make postman` | Reviewer collection against the running API; requires Newman |
+| Performance sanity | `PERF_BASE_URL=http://localhost:8000 make performance` | CI latency, throughput, error-rate, and end-to-end convergence probe |
+| Bounded load | `PERF_BASE_URL=http://localhost:8000 make performance-load` | 500-event/50-concurrency assignment-scale profile with identity reconciliation in MongoDB and Elasticsearch |
+| Postman | `make postman` | Reviewer collection against the running API with a repository-pinned Newman runner |
 
 `make all` runs the fast local quality set. Latest recorded counts and command results are maintained in [`QUALITY-GATES-REPORT.md`](QUALITY-GATES-REPORT.md); the exact clean-stack and rebuild validation record is in [`FINAL_VALIDATION_RECORD.md`](FINAL_VALIDATION_RECORD.md). Coverage is a guardrail, not a substitute for service-backed behavior, failure injection, or acceptance evidence.
 
@@ -242,13 +243,13 @@ The testing priority is to prove failure boundaries and recovery behavior before
 
 ## CI and release validation
 
-Pull requests and pushes to `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Its quality job performs locked installation, formatting, Ruff, MyPy, dependency checks, Compose validation, source-archive hygiene, unit/functional/failure tests, branch-aware coverage, and diff checks. Its service job resets Compose and runs smoke, required integration, rebuild acceptance, E2E, and performance checks. A dependent Docker job validates the Compose configuration and builds the application and UI images. Required service jobs fail when required dependencies or cases are unavailable; they do not turn skips into green evidence.
+Pull requests and pushes to `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Its quality job performs locked installation, formatting, Ruff, MyPy, dependency checks, Compose validation, source-archive hygiene, unit/functional/failure tests, branch-aware coverage, and diff checks. Its service job resets Compose and runs smoke, required integration, rebuild acceptance, E2E, the repository-managed Postman collection, and the stable performance check. A dependent Docker job validates the Compose configuration and builds the application and UI images. Required service jobs fail when required dependencies or cases are unavailable; they do not turn skips into green evidence.
 
-Tags matching `v*.*.*` run [`.github/workflows/release.yml`](.github/workflows/release.yml) as a deployment simulation. Release validation repeats the quality, coverage, Compose, smoke, integration, acceptance, E2E, performance, and Docker gates, then produces a source archive, build metadata, SHA-256 checksums, coverage XML, performance output, and Compose logs. The current workflow does not claim to produce an SBOM.
+Tags matching `v*.*.*` run [`.github/workflows/release.yml`](.github/workflows/release.yml) as a deployment simulation. Release validation repeats the quality, coverage, Compose, smoke, integration, acceptance, E2E, Postman, stable performance, 500-event load, and Docker gates, then produces a source archive, build metadata, SHA-256 checksums, coverage XML, performance output, and Compose logs. The bounded load profile also runs weekly and on demand through [`.github/workflows/performance.yml`](.github/workflows/performance.yml). The current workflow does not claim to produce an SBOM.
 
 ## Postman reviewer suite
 
-The [`postman/`](postman/) directory contains the collection and local Docker environment used for the reviewer flow. Import the collection and environment, start Compose, and run the numbered folders in order. The collection captures an event ID and uses bounded polling for canonical and Elasticsearch visibility. `make postman` exits with a diagnostic if Newman is not installed or the API is unavailable; it never hides a failed request.
+The [`postman/`](postman/) directory contains the collection and local Docker environment used for the reviewer flow. Import the collection and environment, start Compose, and run the numbered folders in order. The collection captures an event ID and uses bounded polling for canonical and Elasticsearch visibility. `make postman` installs and runs the exact Newman version in [`tools/postman/package-lock.json`](tools/postman/package-lock.json); it needs Node/npm but no global Newman installation. API or assertion failures remain nonzero.
 
 ## AI in My Workflow
 
@@ -264,7 +265,7 @@ AI accelerated architecture searches, adversarial scenarios, regression tests, a
 - Elasticsearch is eventually consistent and may be degraded while MongoDB continues accepting canonical events.
 - Redis is disposable cache and rate-limit coordination state, not event truth.
 - The production security boundary uses a shared bearer token; tenant and role identity are expected at a trusted edge rather than invented in this service.
-- The performance command is a repeatable regression probe, not a capacity or service-level claim.
+- The 500-event profile is bounded assignment-scale evidence, not a production capacity or service-level claim; production limits require representative hardware, traffic, and agreed SLOs.
 - Local Compose publishes dependency ports to support developer and integration testing; a deployment should keep those ports private.
 
 ## Local development

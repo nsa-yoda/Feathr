@@ -1,6 +1,6 @@
 # Postman Reviewer Suite
 
-Feature 022 provides a Postman Collection v2.1 and a non-secret local environment.
+The repository provides a Postman Collection v2.1 and a non-secret local environment.
 Import these files into Postman:
 
 - `Distributed Event Processing Platform.postman_collection.json`
@@ -20,11 +20,14 @@ With a running API (the Feature 021 Compose quickstart is the default):
 ```bash
 make postman
 # or
-newman run "postman/Distributed Event Processing Platform.postman_collection.json" \
+tools/postman/node_modules/.bin/newman run \
+  "postman/Distributed Event Processing Platform.postman_collection.json" \
   -e "postman/Local Docker.postman_environment.json"
 ```
 
-The wrapper exits `2` when Newman or either JSON asset is missing and propagates
-Newman/API failures. If the API is unavailable, Newman reports the failed health
-request rather than passing silently. The environment contains no credentials;
-set `baseUrl` in a local copy for another API origin.
+The wrapper installs the exact repository-pinned Newman runtime with `npm ci` on
+first use, exits `2` when Node/npm or either JSON asset is missing, and propagates
+Newman/API failures. No global Newman installation is required. If the API is
+unavailable, Newman reports the failed health request rather than passing
+silently. The environment contains no credentials; set `baseUrl` in a local copy
+for another API origin.

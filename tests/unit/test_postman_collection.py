@@ -12,6 +12,8 @@ COLLECTION = ROOT / "postman/Distributed Event Processing Platform.postman_colle
 ENVIRONMENT = ROOT / "postman/Local Docker.postman_environment.json"
 ENVIRONMENT_TEMPLATE = ROOT / "postman/Local Docker.postman_environment.template.json"
 RUNNER = ROOT / "scripts/postman"
+PACKAGE = ROOT / "tools/postman/package.json"
+PACKAGE_LOCK = ROOT / "tools/postman/package-lock.json"
 
 EXPECTED_FOLDERS = [
     "00 Environment Verification",
@@ -77,7 +79,7 @@ def test_collection_captures_identity_and_polls_with_deadlines() -> None:
     assert "Date.now()" in text
     assert "pollDeadlineMs" in text
     assert "pollRequestTimeoutMs" in text
-    assert text.count('timeout: Number(pm.environment.get("pollRequestTimeoutMs") || 5000)') >= 3
+    assert text.count('pm.environment.get("pollRequestTimeoutMs")') >= 3
     assert "setTimeout(poll, interval)" in text
     assert "sleep " not in text
 
@@ -92,11 +94,15 @@ def test_collection_covers_required_statuses_and_safe_problem_contract() -> None
     for field in ("status", "detail", "error_code", "request_id", "Retry-After"):
         assert field in text
     assert "rateLimitBurst" in text
-    assert "got429" in text
     burst = next(
-        request for request in requests if request["name"] == "Admission backlog overflow contract"
+        request
+        for request in requests
+        if request["name"] == "Bounded admission burst drains without rejection"
     )
-    assert 'response.headers.get("Retry-After")' in _script_text(burst)
+    burst_text = _script_text(burst)
+    assert "completed === burst" in burst_text
+    assert "response.code !== 200" in burst_text
+    assert "Math.max" in burst_text and "10000" in burst_text
     readiness = next(request for request in requests if request["name"] == "Readiness contract")
     assert "persistence_worker" in _script_text(readiness)
     targeted = {request["name"]: _script_text(request) for request in requests}
@@ -135,7 +141,7 @@ def test_environment_is_non_secret_and_matches_template() -> None:
     assert values["pollDeadlineMs"] == "30000"
     assert values["pollIntervalMs"] == "250"
     assert values["pollRequestTimeoutMs"] == "5000"
-    assert values["rateLimitBurst"] == "180"
+    assert values["rateLimitBurst"] == "100"
     assert values.keys() == template_values.keys()
     assert not any("password" in key.lower() or "token" in key.lower() for key in values)
 
@@ -143,7 +149,8 @@ def test_environment_is_non_secret_and_matches_template() -> None:
 def _run_runner(path: Path, *, fake_newman: str | None = None) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     if fake_newman is None:
-        env["PATH"] = "/bin:/usr/bin"
+        env["POSTMAN_AUTO_INSTALL"] = "0"
+        env["NEWMAN_BIN"] = str(path / "missing-newman")
     else:
         bin_dir = path / "bin"
         bin_dir.mkdir(parents=True)
@@ -155,7 +162,7 @@ def _run_runner(path: Path, *, fake_newman: str | None = None) -> subprocess.Com
         )
         executable.write_text(script)
         executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
-        env["PATH"] = f"{bin_dir}:/bin:/usr/bin"
+        env["NEWMAN_BIN"] = str(executable)
     return subprocess.run(
         ["bash", str(RUNNER), "--bail"],
         cwd=ROOT,
@@ -182,14 +189,21 @@ def test_newman_wrapper_controls_missing_and_propagates_exit_code(tmp_path: Path
 
 def test_newman_wrapper_reports_missing_assets(tmp_path: Path) -> None:
     env = os.environ.copy()
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    newman = bin_dir / "newman"
-    newman.write_text("#!/usr/bin/env bash\nexit 0\n")
-    newman.chmod(newman.stat().st_mode | stat.S_IXUSR)
-    env["PATH"] = f"{bin_dir}:/bin:/usr/bin"
+    env["POSTMAN_ROOT"] = str(tmp_path)
+    env["POSTMAN_AUTO_INSTALL"] = "0"
     result = subprocess.run(
-        ["bash", str(RUNNER)], cwd=tmp_path, env=env, capture_output=True, text=True, check=False
+        ["bash", str(RUNNER)], cwd=ROOT, env=env, capture_output=True, text=True, check=False
     )
     assert result.returncode == 2
     assert "missing" in result.stderr
+
+
+def test_newman_runtime_is_repository_managed_and_exactly_locked() -> None:
+    package = _load(PACKAGE)
+    lock = _load(PACKAGE_LOCK)
+    assert package["private"] is True
+    assert package["devDependencies"]["newman"] == "6.2.2"
+    assert lock["packages"]["node_modules/newman"]["version"] == "6.2.2"
+    runner = RUNNER.read_text()
+    assert "npm ci --prefix" in runner
+    assert "npm install --global" not in runner

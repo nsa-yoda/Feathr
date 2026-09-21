@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Small repeatable HTTP regression probe; heavy load remains a manual job."""
+"""Repeatable HTTP latency and bounded-load verification against a live stack."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -20,13 +23,98 @@ def percentile(values: list[float], percentile_value: float) -> float:
     return ordered[index]
 
 
-def main() -> int:
+def positive_int(name: str, default: int) -> int:
+    value = int(os.environ.get(name, str(default)))
+    if value < 1:
+        raise ValueError(f"{name} must be positive")
+    return value
+
+
+async def collect_event_ids(
+    client: httpx.AsyncClient,
+    path: str,
+    *,
+    params: dict[str, str | int],
+) -> set[str]:
+    """Read every bounded cursor page for one isolated load-test identity."""
+
+    event_ids: set[str] = set()
+    cursor: str | None = None
+    for _ in range(10_000):
+        page_params = dict(params)
+        if cursor is not None:
+            page_params["cursor"] = cursor
+        response = await client.get(path, params=page_params)
+        response.raise_for_status()
+        body = response.json()
+        event_ids.update(str(item["event_id"]) for item in body["items"])
+        cursor = body.get("next_cursor")
+        if not cursor:
+            return event_ids
+    raise RuntimeError(f"pagination did not terminate for {path}")
+
+
+async def wait_for_visibility(
+    client: httpx.AsyncClient,
+    *,
+    expected_ids: set[str],
+    user_id: str,
+    marker: str,
+    deadline_seconds: float,
+) -> tuple[float, int, int]:
+    """Wait for canonical and derived stores to contain the complete accepted ID set."""
+
+    started = time.monotonic()
+    canonical_ids: set[str] = set()
+    search_ids: set[str] = set()
+    while time.monotonic() - started < deadline_seconds:
+        canonical_ids = await collect_event_ids(
+            client,
+            "/events",
+            params={"user_id": user_id, "limit": 200},
+        )
+        search_ids = await collect_event_ids(
+            client,
+            "/events/search",
+            params={"q": marker, "user_id": user_id, "limit": 200},
+        )
+        if expected_ids <= canonical_ids and expected_ids <= search_ids:
+            return time.monotonic() - started, len(canonical_ids), len(search_ids)
+        await asyncio.sleep(0.25)
+    missing_canonical = len(expected_ids - canonical_ids)
+    missing_search = len(expected_ids - search_ids)
+    raise TimeoutError(
+        "load convergence timed out: "
+        f"canonical_missing={missing_canonical}, search_missing={missing_search}"
+    )
+
+
+async def timed_get(
+    client: httpx.AsyncClient,
+    path: str,
+    *,
+    params: dict[str, str | int] | None = None,
+) -> tuple[float, int]:
+    started = time.perf_counter()
+    response = await client.get(path, params=params)
+    return (time.perf_counter() - started) * 1000, response.status_code
+
+
+async def run() -> dict[str, Any]:
+    profile = os.environ.get("PERF_PROFILE", "ci")
+    if profile not in {"ci", "load"}:
+        raise ValueError("PERF_PROFILE must be 'ci' or 'load'")
+
+    load_profile = profile == "load"
     base_url = os.environ.get("PERF_BASE_URL", "http://127.0.0.1:8000")
-    requests = int(os.environ.get("PERF_REQUESTS", "20"))
-    max_p95_ms = float(os.environ.get("PERF_MAX_P95_MS", "2000"))
-    if requests < 1:
-        print("PERF_REQUESTS must be positive", file=sys.stderr)
-        return 2
+    requests = positive_int("PERF_REQUESTS", 500 if load_profile else 20)
+    concurrency = positive_int("PERF_CONCURRENCY", 50 if load_profile else 1)
+    read_samples = positive_int("PERF_READ_SAMPLES", 25 if load_profile else requests)
+    convergence_deadline = float(os.environ.get("PERF_CONVERGENCE_SECONDS", "120"))
+    request_timeout = float(os.environ.get("PERF_REQUEST_TIMEOUT_SECONDS", "30"))
+    if convergence_deadline <= 0 or request_timeout <= 0:
+        raise ValueError("performance timeouts must be positive")
+
     samples: dict[str, list[float]] = {
         "ingest": [],
         "events": [],
@@ -36,45 +124,94 @@ def main() -> int:
     }
     errors = 0
     suffix = uuid4().hex
-    try:
-        with httpx.Client(base_url=base_url, timeout=10.0) as client:
-            if client.get("/health/ready").status_code != 200:
-                print("performance probe: readiness failed", file=sys.stderr)
-                return 1
-            for index in range(requests):
-                payload = {
-                    "event_type": "performance.event",
-                    "timestamp": "2026-01-01T00:00:00Z",
-                    "user_id": f"perf-{suffix}",
-                    "source_url": "https://example.invalid/performance",
-                    "metadata": {"iteration": index},
-                }
+    marker = f"perf-marker-{suffix}"
+    user_id = f"perf-user-{suffix}"
+    accepted_ids: set[str] = set()
+    semaphore = asyncio.Semaphore(concurrency)
+
+    limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
+    timeout = httpx.Timeout(request_timeout)
+    async with httpx.AsyncClient(base_url=base_url, timeout=timeout, limits=limits) as client:
+        ready = await client.get("/health/ready")
+        if ready.status_code != 200:
+            raise RuntimeError(f"performance probe readiness failed: HTTP {ready.status_code}")
+
+        async def ingest(index: int) -> tuple[float, int, str | None]:
+            payload = {
+                "event_type": "performance.event",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "user_id": user_id,
+                "source_url": "https://example.invalid/performance",
+                "metadata": {"iteration": index, "marker": marker},
+            }
+            async with semaphore:
                 started = time.perf_counter()
-                response = client.post(
-                    "/events", json=payload, headers={"Idempotency-Key": f"perf-{suffix}-{index}"}
+                response = await client.post(
+                    "/events",
+                    json=payload,
+                    headers={"Idempotency-Key": f"perf-{suffix}-{index}"},
                 )
-                samples["ingest"].append((time.perf_counter() - started) * 1000)
-                if response.status_code != 202:
+                elapsed_ms = (time.perf_counter() - started) * 1000
+            event_id = None
+            if response.status_code == 202:
+                event_id = str(response.json()["event_id"])
+            return elapsed_ms, response.status_code, event_id
+
+        ingest_started = time.perf_counter()
+        ingest_results = await asyncio.gather(*(ingest(index) for index in range(requests)))
+        ingest_elapsed = time.perf_counter() - ingest_started
+        for elapsed_ms, status_code, event_id in ingest_results:
+            samples["ingest"].append(elapsed_ms)
+            if status_code != 202 or event_id is None:
+                errors += 1
+            else:
+                accepted_ids.add(event_id)
+
+        if len(accepted_ids) != requests:
+            raise RuntimeError(
+                f"only {len(accepted_ids)} of {requests} load events were accepted uniquely"
+            )
+
+        convergence_seconds, canonical_count, search_count = await wait_for_visibility(
+            client,
+            expected_ids=accepted_ids,
+            user_id=user_id,
+            marker=marker,
+            deadline_seconds=convergence_deadline,
+        )
+
+        routes: dict[str, tuple[str, dict[str, str | int] | None]] = {
+            "events": ("/events", {"user_id": user_id, "limit": 50}),
+            "stats": ("/events/stats", {"bucket": "hour"}),
+            "search": (
+                "/events/search",
+                {"q": marker, "user_id": user_id, "limit": 50},
+            ),
+            "realtime": ("/events/stats/realtime", {"window_minutes": 5}),
+        }
+        for name, (path, params) in routes.items():
+            for _ in range(read_samples):
+                elapsed_ms, status_code = await timed_get(client, path, params=params)
+                samples[name].append(elapsed_ms)
+                if status_code != 200:
                     errors += 1
-            for name, path in {
-                "events": f"/events?user_id=perf-{suffix}&limit=50",
-                "stats": "/events/stats?bucket=hour",
-                "search": "/events/search?q=performance.event&limit=50",
-                "realtime": "/events/stats/realtime?window_minutes=5",
-            }.items():
-                for _ in range(requests):
-                    started = time.perf_counter()
-                    response = client.get(path)
-                    samples[name].append((time.perf_counter() - started) * 1000)
-                    if response.status_code != 200:
-                        errors += 1
-    except (httpx.HTTPError, ValueError) as error:
-        print(f"performance probe failed: {type(error).__name__}", file=sys.stderr)
-        return 1
-    result = {
+
+    total_requests = requests + (read_samples * 4)
+    return {
+        "profile": profile,
         "base_url": base_url,
-        "requests_per_route": requests,
+        "ingest_requests": requests,
+        "ingest_concurrency": concurrency,
+        "read_samples_per_route": read_samples,
+        "accepted_unique_events": len(accepted_ids),
+        "ingest_elapsed_seconds": round(ingest_elapsed, 3),
+        "ingest_throughput_per_second": round(len(accepted_ids) / ingest_elapsed, 2),
+        "convergence_seconds": round(convergence_seconds, 3),
+        "canonical_visible_events": canonical_count,
+        "search_visible_events": search_count,
+        "total_http_requests_measured": total_requests,
         "errors": errors,
+        "error_rate": round(errors / total_requests, 6),
         "routes": {
             name: {
                 "count": len(values),
@@ -86,12 +223,27 @@ def main() -> int:
             for name, values in samples.items()
         },
     }
-    output = Path(os.environ.get("PERF_OUTPUT", "artifacts/performance.json"))
+
+
+def main() -> int:
+    profile = os.environ.get("PERF_PROFILE", "ci")
+    default_output = (
+        "artifacts/performance-load.json" if profile == "load" else "artifacts/performance.json"
+    )
+    try:
+        result = asyncio.run(run())
+    except (httpx.HTTPError, RuntimeError, TimeoutError, ValueError) as error:
+        print(f"performance probe failed: {error}", file=sys.stderr)
+        return 1
+
+    output = Path(os.environ.get("PERF_OUTPUT", default_output))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps(result, indent=2, sort_keys=True))
+
+    max_p95_ms = float(os.environ.get("PERF_MAX_P95_MS", "7000" if profile == "load" else "2000"))
     p95 = max(route["p95_ms"] for route in result["routes"].values())
-    return 1 if errors or p95 > max_p95_ms else 0
+    return 1 if result["errors"] or p95 > max_p95_ms else 0
 
 
 if __name__ == "__main__":

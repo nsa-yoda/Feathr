@@ -58,7 +58,7 @@ markers = [
   "e2e: black-box tests against a running application stack",
   "acceptance: executable architectural acceptance contracts",
   "failure: dependency and recovery failure scenarios",
-  "performance: repeatable lightweight performance probes",
+  "performance: repeatable latency and bounded-load probes",
   "smoke: clean-stack smoke checks",
   "security: security and dependency hardening checks",
   "release: tagged release validation",
