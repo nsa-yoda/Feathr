@@ -90,5 +90,5 @@ def test_readme_documents_reproducible_workflow_and_rebuild_cli() -> None:
     assert "make coverage" in text
     assert "make compose-config" in text and "make compose-down" in text
     assert "make smoke" in text and "make postman" in text
-    assert "Python 3.12" in text and "uv.lock" in text
-    assert "CI and the application image use Python 3.14.7" in text
+    assert "Python `>=3.12`" in text and "uv.lock" in text
+    assert "application image" in text and "Python 3.14.7-slim" in text

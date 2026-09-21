@@ -15,12 +15,12 @@ CHECKLIST = ROOT / "FINAL-ACCEPTANCE-CHECKLIST.md"
 def test_readme_has_reviewer_workflow_and_ai_section() -> None:
     text = README.read_text()
     for section in (
-        "## Configuration and endpoint map",
+        "## Configuration",
         "## Postman reviewer suite",
         "## AI in My Workflow",
-        "## Reviewer operations UI",
-        "## Consistency and known limitations",
-        "## Testing and evidence",
+        "## Reviewer UI and live Visualizer",
+        "## Processing and consistency model",
+        "## Testing and quality gates",
     ):
         assert section in text
     for command in (
@@ -32,9 +32,9 @@ def test_readme_has_reviewer_workflow_and_ai_section() -> None:
         "make rebuild-demo",
     ):
         assert command in text
-    assert "durable across application-process failure" in text
-    assert "Human judgment remained authoritative" in text
-    assert "The final submission documentation includes:" in text
+    assert "not durable across catastrophic process loss" in text
+    assert "Acceptance remained evidence-driven" in text
+    assert "## Further documentation" in text
     assert "will also include" not in text
 
 

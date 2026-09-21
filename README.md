@@ -1,112 +1,70 @@
-# Distributed Event Processing Platform
+# Feathr — Distributed Event Processing Platform
+
+[![CI](https://github.com/nsa-yoda/Feathr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nsa-yoda/Feathr/actions/workflows/ci.yml)
+[![Release validation](https://github.com/nsa-yoda/Feathr/actions/workflows/release.yml/badge.svg)](https://github.com/nsa-yoda/Feathr/actions/workflows/release.yml)
 
 <p align="center">
   <img src="logo.png" alt="Feathr Distributed Event Processing Platform" width="640">
 </p>
 
-[![CI](https://github.com/nsa-yoda/Feathr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nsa-yoda/Feathr/actions/workflows/ci.yml)
-[![Release validation](https://github.com/nsa-yoda/Feathr/actions/workflows/release.yml/badge.svg)](https://github.com/nsa-yoda/Feathr/actions/workflows/release.yml)
+Feathr is a production-oriented distributed event processing platform for ingesting, processing, querying, searching, aggregating, and caching web events. FastAPI accepts validated events asynchronously into an SQS-style queue. MongoDB is the canonical event store, Elasticsearch is an eventually consistent and rebuildable search projection, and Redis provides realtime cache and distributed rate-limit state.
 
-> **Current state:** Features 001-038 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, executable Postman reviewer suite, and reviewer operations UI. The ACR2 remediation keeps Mongo canonical, makes derived-service failure degradable, and adds fenced idempotency/projector ownership. Static, service-backed, clean Compose smoke, online rebuild acceptance, and UI image checks are executable locally; the CI badges above report the GitHub-hosted workflow state. See `CODEX-HANDOFF.md`, `AUTO_CODE_REVIEW_2.md`, and the active Spec Kit artifacts.
+The design makes acknowledgement boundaries, idempotency, retries, DLQ handling, derived-service degradation, online Elasticsearch rebuilds, and operational visibility explicit. These guarantees are exercised through layered unit, functional, service-backed integration, acceptance, E2E, smoke, and failure tests. The local queue remains process-local by design, so its crash-durability limitation is documented rather than hidden.
 
-A production-oriented event ingestion, processing, search, analytics, caching, and reviewer-demo platform built with FastAPI, MongoDB, Elasticsearch, Redis, and an assessment-mandated in-process SQS-style queue.
+## Key properties
 
-## Run the foundation service
+- Asynchronous `POST /events` acceptance with an explicit `202 Accepted` boundary.
+- MongoDB as the authoritative source of truth.
+- Elasticsearch as a rebuildable, eventually consistent search projection.
+- Redis as disposable realtime cache and distributed rate-limit state.
+- At-least-once processing with duplicate-safe persistence and idempotency.
+- Bounded retry/backoff behavior and a simulated DLQ after exhaustion.
+- Graceful queue admission stop and worker draining during shutdown.
+- Online Elasticsearch rebuilds with live-write convergence, identity verification, and one atomic alias swap.
+- Leaky-bucket rate limiting with bounded delayed admission and a conservative local fallback when Redis is unavailable.
+- Health, structured logs, request IDs, metrics, queue gauges, projection lag, and dependency visibility.
+- Docker Compose startup with Mongo replica-set initialization and storage bootstrap.
+- Layered automated quality gates and release validation.
 
-Use Python 3.12 or newer and `uv`. From the repository root:
+## Architecture at a glance
 
-```bash
-cp .env.example .env
-uv sync --locked
-uv run --locked uvicorn event_platform.main:create_app --factory --log-config src/event_platform/core/uvicorn_logging.json --host 127.0.0.1 --port 8000 --workers 1
+```text
+                    ┌─────────────────┐
+                    │   POST /events  │
+                    └────────┬────────┘
+                             │ 202 Accepted
+                             ▼
+                    ┌─────────────────┐
+                    │ SQS-style Queue │
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │ Background      │
+                    │ Worker          │
+                    └────────┬────────┘
+                             │ durable insert
+                             ▼
+                    ┌─────────────────┐
+                    │ MongoDB         │
+                    │ Canonical State │
+                    └───────┬─────────┘
+                            │ change stream
+               ┌────────────┴─────────────┐
+               ▼                          ▼
+       ┌───────────────┐          ┌───────────────┐
+       │ Elasticsearch │          │ Redis         │
+       │ Search        │          │ Cache / Limit │
+       └───────────────┘          └───────────────┘
 ```
 
-Open `http://127.0.0.1:8000/docs` for API discovery or request `http://127.0.0.1:8000/health/live` for liveness. Stop the foreground server with Ctrl-C. Liveness returns `{"status":"alive"}` and proves only that the base process responds; it does not check MongoDB, Elasticsearch, Redis, or a queue. Those services are not needed to run Feature 001.
+MongoDB is authoritative. Elasticsearch is derived, eventually consistent, and can be rebuilt without changing canonical events. Redis is disposable derived state; its loss does not lose events. Queue admission is process-local and is therefore not durable across catastrophic process loss. The production path is an SQS-compatible external queue, described in [`docs/operations/sqs-migration.md`](docs/operations/sqs-migration.md).
 
-| Variable | Default | Allowed values | Purpose |
-|---|---|---|---|
-| `EVENT_PLATFORM_ENV` | `local` | `local`, `test`, `production` | Runtime environment label. |
-| `EVENT_PLATFORM_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` | Foundation log-level setting. |
-| `EVENT_PLATFORM_MONGO_URL` | unset for foundation-only local mode | MongoDB URI | Canonical storage; required in production and verified before workers start. |
-| `EVENT_PLATFORM_MONGO_DATABASE` | `event_platform` | Mongo database name | Canonical and operational storage database. |
-| `EVENT_PLATFORM_MONGO_COLLECTION` | `events` | Mongo collection name | Canonical event collection covered by the storage manifest. |
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full failure model, indexing rationale, scaling path, rebuild protocol, and production evolution plan.
 
-An invalid foundation setting aborts startup before serving. The diagnostic names the field without printing its supplied value. Later feature settings will be documented as those integrations land.
+## Quick start
 
-`EVENT_PLATFORM_RATE_LIMIT_MAX_DELAYED_REQUESTS` bounds the process-wide queue of
-requests waiting for a leaky-bucket slot. A request receives `429` only when that
-bounded admission gate (or the distributed bucket backlog) is full. Keep this value
-bounded per replica; Redis remains the cross-replica limiter.
-
-Run the foundation checks with:
-
-```bash
-make format-check
-make lint
-make typecheck
-make dependency-check
-make test-unit
-make test-functional
-make test-integration
-make test-integration-required   # requires MongoDB, Elasticsearch, and Redis
-make test-acceptance-required    # service-backed online rebuild
-make test-e2e-required           # requires E2E_BASE_URL
-make test-failure
-make coverage
-make performance                # requires a running stack
-```
-
-Developer workflow targets:
-
-```bash
-make all
-make compose-config
-make compose-up
-make smoke
-make postman
-make compose-down
-# destructive local reset, when intended:
-make compose-reset
-make rebuild-status
-make rebuild-demo
-```
-
-`make rebuild-demo` prints the guarded, executable online rebuild command. It
-requires the Compose MongoDB replica set and Elasticsearch services; use
-`make rebuild-status` for a read-only check. The direct CLI forms are
-`uv run --locked python -m event_platform.cli search rebuild-status` and
-`uv run --locked python -m event_platform.cli search rebuild --confirm`.
-
-CI and the application image use Python 3.14.7 and uv 0.12.17. The Compose
-baseline pins MongoDB 8.3.11, Elasticsearch 9.5.4, Redis 8.10.1, and the
-unprivileged Nginx frontend at 1.31.6; `uv.lock` is always consumed with
-`--locked` resolution.
-
-The unit suite is the isolated semantic suite for settings, lifecycle state machines,
-queue/worker acknowledgement boundaries, idempotency/projector races, query/search/
-analytics contracts, caching, rate limiting, request IDs, and problem responses.
-`make coverage` measures backend source lines and branches across unit,
-functional, and failure tests and writes `coverage/coverage.xml`; it is a
-guardrail, not proof of semantic completeness. The current quality floor is
-90% total branch-aware coverage, with risk-based tests prioritized over trivial
-line execution.
-Coverage does not replace integration tests against MongoDB, Elasticsearch, or Redis,
-failure-injection tests, browser checks, Compose smoke, or Postman review flows. The
-testing philosophy is to prove state transitions and failure dispositions at unit level,
-then run the same contracts through real dependencies when the environment supplies
-them. With more time, the next tests would exercise two live API replicas racing on
-Mongo leases/idempotency and a long-running bulk projector under lease loss.
-The current HTTP contract is in [the foundation contract](specs/001-platform-foundation/contracts/http-foundation.md), and its manual check is in [the quickstart validation](specs/001-platform-foundation/quickstart.md).
-
-For a service-backed acceptance run, set `MONGO_URI`, `ELASTICSEARCH_URL`, and
-`REDIS_URL` and run `make test-integration-required`; that gate fails on missing
-endpoints or skipped cases. `make test-integration` remains the local
-dependency-optional selection. `make check-source-archive` checks tracked source
-files for cache/bytecode/platform debris and required project inputs.
-
-## Reviewer quick start
-
-The finished repository must support a workflow no more complicated than:
+The complete reviewer path is:
 
 ```bash
 cp .env.example .env
@@ -114,169 +72,237 @@ docker compose up --build -d
 make smoke
 ```
 
-The API is available at `http://localhost:8000`, OpenAPI at `/docs`, readiness at
-`/health/ready`, metrics at `/metrics`, and the static UI shell at
-`http://localhost:3000`. Compose waits for Mongo replica-set initialization and
-healthy Elasticsearch and Redis services before starting the API. `make smoke`
-uses a bounded deadline to post an event and verify canonical query, search, and
-realtime statistics.
+Compose initializes the MongoDB replica set, runs the versioned storage-index bootstrap, waits for MongoDB, Elasticsearch, and Redis health, and then starts the API and UI. `make smoke` verifies the live lifecycle:
 
-If smoke fails, the stack remains available for inspection with `docker compose
-ps`; reset it with `docker compose down -v`.
-
-Reset all local data with:
-
-```bash
-docker compose down -v
+```text
+ingest → async worker → Mongo query → Elasticsearch search
+       → Mongo analytics → Redis realtime statistics
 ```
 
-The API and UI containers run as non-root users. Redis is unauthenticated in the
-local defaults; set `REDIS_PASSWORD` and update `EVENT_PLATFORM_REDIS_URL` in
-`.env` together when a password is required.
+Useful local URLs:
 
+| Surface | URL |
+|---|---|
+| API | <http://localhost:8000> |
+| OpenAPI | <http://localhost:8000/docs> |
+| Reviewer UI | <http://localhost:3000> |
+| Liveness | <http://localhost:8000/health/live> |
+| Readiness | <http://localhost:8000/health/ready> |
+| Metrics | <http://localhost:8000/metrics> |
 
-## Configuration and endpoint map
+To remove containers and all local service data:
 
-Copy `.env.example` to `.env` before Compose. The local defaults use API port
-8000, reviewer UI port 3000, a Mongo replica set at `rs0`, Elasticsearch on
-its Compose network, Redis without a password, a 90-second Mongo init deadline,
-and bounded dependency/request limits. Set `REDIS_PASSWORD` together with a
-matching authenticated Redis URL when credentials are required.
+```bash
+docker compose down -v --remove-orphans
+```
 
-Compose also publishes Mongo, Elasticsearch, and Redis on host ports 27017,
-9200, and 6379 for local integration tests. Keep those bindings private or
-remove them in a production deployment.
+The equivalent repeatable Make targets are `make compose-config`,
+`make compose-up`, `make compose-down`, and `make compose-reset`. `make smoke`,
+`make postman`, `make rebuild-status`, and `make rebuild-demo` cover the main
+reviewer and operator workflows.
 
-### Mongo storage bootstrap
+## API
 
-Mongo schema ownership is explicit. Run the additive, idempotent bootstrap actor
-before starting an application that is configured with Mongo:
+All public API errors use the repository's `application/problem+json` contract. The exhaustive schemas and interactive examples are available at `/docs`.
+
+| Method | Path | Purpose | Backing system / consistency |
+|---|---|---|---|
+| `POST` | `/events` | Validate and enqueue an event | Process-local queue; asynchronous `202` |
+| `GET` | `/events` | Filtered, cursor-paginated canonical events | MongoDB; authoritative |
+| `GET` | `/events/stats` | Bounded time-bucket aggregation | MongoDB; authoritative |
+| `GET` | `/events/stats/realtime` | Rolling event-type statistics | MongoDB with Redis cache-aside |
+| `GET` | `/events/search` | Full-text and exact-filter search | Elasticsearch; eventually consistent |
+| `GET` | `/events/search/rebuild` | Latest or selected rebuild state | MongoDB; operational state |
+| `GET` | `/health/live` | Process liveness | Dependency-free |
+| `GET` | `/health/ready` | Readiness snapshot | MongoDB, Elasticsearch, Redis, queue, workers |
+| `GET` | `/health/components` | Component health without readiness status | Health registry |
+| `GET` | `/metrics` | Lightweight metrics exposition | In-process registry |
+| `GET` | `/operations/visualizer` | Consolidated UI snapshot | Health, metrics, MongoDB/Redis realtime data |
+
+`/metrics` exposes Prometheus-compatible text exposition backed by the platform's lightweight in-process metrics registry. No Prometheus server, OpenTelemetry collector, or Grafana deployment is required for the assignment stack. The registry includes bounded counters, latency histograms, queue and worker gauges, projection lag, and dependency metrics.
+
+### Ingest an event
+
+```bash
+curl -X POST http://localhost:8000/events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "event_type": "pageview",
+    "timestamp": "2026-09-21T12:00:00Z",
+    "user_id": "user-123",
+    "source_url": "https://example.com/docs",
+    "metadata": {
+      "browser": "Firefox",
+      "device": "desktop"
+    }
+  }'
+```
+
+Successful admission returns `202 Accepted` with an event ID, `status: queued`, and a request ID. It confirms validation and local queue admission; it does not claim Mongo persistence or Elasticsearch visibility, and it cannot make a volatile in-process queue survive a process crash.
+
+### Query, aggregate, and search
+
+```bash
+# Canonical MongoDB query
+curl 'http://localhost:8000/events?event_type=pageview&user_id=user-123&limit=50'
+
+# Hourly MongoDB analytics
+curl 'http://localhost:8000/events/stats?bucket=hour'
+
+# Elasticsearch projection search
+curl 'http://localhost:8000/events/search?q=docs&event_type=pageview&limit=20'
+
+# Realtime MongoDB statistics with Redis cache-aside
+curl 'http://localhost:8000/events/stats/realtime?window_minutes=5'
+```
+
+## Processing and consistency model
+
+`POST /events` validates the typed event and reserves any supplied `Idempotency-Key` before admitting the immutable event envelope to the bounded queue. The persistence worker receives messages at least once, renews visibility while work is active, persists to MongoDB, and acknowledges only after durable insert or verified duplicate equivalence. Transient failures use bounded retry/backoff; exhausted or permanent failures are routed to the simulated DLQ.
+
+Graceful shutdown stops new queue admission, allows the persistence worker to drain within the configured deadline, and records residual volatile work if the deadline expires. A process crash can still lose messages that existed only in the local queue. Replacing this adapter with SQS changes the durability and scaling boundary without changing the worker's at-least-once/idempotent logic.
+
+MongoDB remains canonical for queries and analytics. The change-stream projector writes Elasticsearch outside the ingestion acknowledgement path, so Elasticsearch outages degrade search and projection health without losing canonical ingestion. Redis failures bypass the cache and use bounded local rate-limit protection; Redis never becomes the source of event truth.
+
+Online Elasticsearch rebuilds create a candidate generation, enable candidate live writes before the bounded historical scan, capture an independent Mongo change-stream source fence, backfill through the `_id` bound, wait for the projector to reach the source fence, verify event identity/content, and perform one atomic stable-alias swap. `_id` is only a historical scan bound; Mongo change-stream cluster time is the convergence watermark and resume tokens remain opaque restart cursors. See the [Elasticsearch rebuild runbook](docs/operations/elasticsearch-rebuild.md).
+
+## Configuration
+
+Copy `.env.example` for the complete local Compose configuration. The table below groups the settings that matter most at runtime; defaults and validation limits live in `.env.example` and `src/event_platform/core/settings.py`.
+
+| Area | Environment variables |
+|---|---|
+| Runtime and limits | `EVENT_PLATFORM_ENV`, `EVENT_PLATFORM_LOG_LEVEL`, `EVENT_PLATFORM_DEPENDENCY_TIMEOUT_SECONDS`, `EVENT_PLATFORM_REQUEST_BODY_MAX_BYTES`, `EVENT_PLATFORM_REQUEST_QUERY_MAX_BYTES` |
+| MongoDB | `EVENT_PLATFORM_MONGO_URL`, `EVENT_PLATFORM_MONGO_DATABASE`, `EVENT_PLATFORM_MONGO_COLLECTION` |
+| Elasticsearch | `EVENT_PLATFORM_ELASTICSEARCH_URL`, `EVENT_PLATFORM_ELASTICSEARCH_ALIAS` |
+| Redis | `EVENT_PLATFORM_REDIS_URL`, `REDIS_PASSWORD` |
+| Queue and workers | `EVENT_PLATFORM_QUEUE_CAPACITY`, `EVENT_PLATFORM_QUEUE_VISIBILITY_TIMEOUT`, `EVENT_PLATFORM_QUEUE_SEND_TIMEOUT`, `EVENT_PLATFORM_WORKER_CONCURRENCY`, `EVENT_PLATFORM_SHUTDOWN_GRACE_PERIOD` |
+| Idempotency and cache | `EVENT_PLATFORM_IDEMPOTENCY_REPLAY_WINDOW_SECONDS`, `EVENT_PLATFORM_REALTIME_CACHE_TTL_SECONDS`, `EVENT_PLATFORM_REALTIME_DEFAULT_WINDOW_MINUTES`, `EVENT_PLATFORM_REALTIME_MAX_EVENT_TYPES` |
+| Cursor and production auth | `EVENT_PLATFORM_CURSOR_SIGNING_KEY`, `EVENT_PLATFORM_CURSOR_PREVIOUS_SIGNING_KEY`, `EVENT_PLATFORM_PRODUCTION_API_TOKEN` |
+| Rate limiting | `EVENT_PLATFORM_RATE_LIMIT_MAX_DELAYED_REQUESTS`, plus the ingestion, normal, expensive, and operations capacity/refill/cost settings |
+| Compose | `COMPOSE_PROJECT_NAME`, `APP_PORT`, `UI_PORT`, `MONGO_PORT`, `ELASTICSEARCH_PORT`, `REDIS_PORT`, `MONGO_INIT_DEADLINE_SECONDS`, `ES_JAVA_OPTS` |
+
+Production secrets, cursor keys, and bearer tokens belong in a deployment secret manager. The local Compose profile intentionally publishes MongoDB, Elasticsearch, and Redis host ports for integration testing; keep those ports private or remove the bindings in a deployment.
+
+## Mongo storage bootstrap
+
+Storage bootstrap is additive and idempotent. The Compose `storage-bootstrap` service runs it before the API starts. For a manually configured MongoDB:
 
 ```bash
 uv run --locked python -m event_platform.cli storage bootstrap
 uv run --locked python -m event_platform.cli storage verify
 ```
 
-`storage bootstrap` creates the versioned event, projection-checkpoint, rebuild,
-projector-lease, idempotency, and schema-state indexes. `storage verify` is read-only. Application
-lifespan performs the same verification before creating persistence or search
-projector tasks; it never mutates shared schema. Production startup rejects a
-missing canonical Mongo URL. Compose runs the bootstrap service after replica
-set initialization and waits for it to complete before starting the API.
+`storage bootstrap` creates the versioned event, checkpoint, rebuild, projector lease, idempotency, and schema-state indexes. `storage verify` is read-only and is also the invariant checked by application startup.
 
-### Production security boundary
+## Security boundary
 
-Production requires a canonical Mongo URL, shared cursor signing key, and
-deployment-supplied `EVENT_PLATFORM_PRODUCTION_API_TOKEN`. Every route except
-`/health/live` requires a bearer token; production responses include HSTS. Keep
-tokens and cursor keys in the deployment secret manager, and terminate TLS plus
-tenant/role authorization at the trusted production edge.
+Local development permits the documented Compose defaults. In production, configure `EVENT_PLATFORM_ENV=production`, a canonical MongoDB URL, a shared cursor signing key, and `EVENT_PLATFORM_PRODUCTION_API_TOKEN`. Protected routes require a bearer token; `/health/live` remains dependency-free for container liveness. TLS termination, tenant identity, and role authorization belong at a trusted deployment edge because this repository defines a shared operator-token boundary rather than a full tenant identity system.
 
-| Surface | URL/path | Ownership/behavior |
+## Reviewer UI and live Visualizer
+
+The assignment is backend-focused; the UI is an optional reviewer and demo aid, not a replacement for the backend architecture. It is a static same-origin console served by unprivileged nginx and proxies `/api/` to the FastAPI app.
+
+Shareable paths are `/dashboard`, `/generator`, `/events`, `/search`, `/analytics`, `/realtime`, `/visualizer`, and `/operations`; `/` opens the dashboard. The Visualizer uses the locally vendored D3 7.9.0 dependency and polls `/api/operations/visualizer` approximately every 500 ms without overlapping requests. It pauses while the tab is hidden, retains a bounded five-minute/600-sample history, preserves text selections and scroll position, and charts throughput, event types, queue health, latency, cache effectiveness, projection processing delay, and dependency health.
+
+Frontend checks:
+
+```bash
+cd frontend
+npm ci
+npm run vendor
+npm test
+```
+
+## Testing and quality gates
+
+Tests are layered by failure radius. Pure business and state-machine semantics are isolated at unit level; HTTP contracts are covered functionally; MongoDB, Elasticsearch, Redis, and change streams are exercised against real services; critical distributed-system guarantees are executable acceptance contracts; and the full Compose stack is checked through smoke and black-box E2E tests.
+
+| Layer | Command | Purpose |
 |---|---|---|
-| OpenAPI | `http://localhost:8000/docs` | FastAPI contract discovery |
-| Liveness/readiness/components | `/health/live`, `/health/ready`, `/health/components` | Process and dependency state |
-| Metrics | `/metrics` | Prometheus text, bounded counters, latency histograms, and operational gauges |
-| Canonical events | `POST/GET /events` | Mongo-backed event acceptance/query |
-| Search | `GET /events/search` | Eventually consistent Elasticsearch projection |
-| Analytics/realtime | `/events/stats`, `/events/stats/realtime` | Mongo aggregation and Redis cache-aside |
-| Rebuild status | `/events/search/rebuild` | Read-only Mongo-backed rebuild state |
-| Visualizer snapshot | `/operations/visualizer` | Consolidated read-only metrics, health, and cached realtime analytics |
-| Reviewer UI | `http://localhost:3000` | Static console through nginx `/api/` proxy |
+| Formatting | `make format-check` | Ruff formatting gate |
+| Lint | `make lint` | Ruff error, import, and simplification checks |
+| Types | `make typecheck` | Strict MyPy over backend source |
+| Dependency consistency | `make dependency-check` | Locked resolution and package checks |
+| Unit | `make test-unit` | Isolated domain, queue, storage, lifecycle, and service semantics |
+| Functional | `make test-functional` | HTTP validation, middleware, routing, and public error contracts |
+| Failure | `make test-failure` | Deterministic outage, retry, ownership, cancellation, and recovery cases |
+| Optional integration | `make test-integration` | Integration collection with explicit dependency-optional skips |
+| Required integration | `make test-integration-required` | Real MongoDB replica set, Elasticsearch, Redis, change streams, and bootstrap |
+| Acceptance | `make test-acceptance-required` | Online rebuild, live writes, fencing, verification, and atomic alias cutover |
+| E2E | `E2E_BASE_URL=http://localhost:8000 make test-e2e-required` | Black-box ingestion/query/search/statistics flows |
+| Coverage | `make coverage` | Branch-aware backend coverage with a 90% enforced floor |
+| Smoke | `make smoke` | Clean-stack readiness and ingest-to-query lifecycle |
+| Performance | `PERF_BASE_URL=http://localhost:8000 make performance` | Lightweight p50/p95/p99 regression probe |
+| Postman | `make postman` | Reviewer collection against the running API; requires Newman |
 
-## Consistency and known limitations
+`make all` runs the fast local quality set. Latest recorded counts and command results are maintained in [`QUALITY-GATES-REPORT.md`](QUALITY-GATES-REPORT.md); the exact clean-stack and rebuild validation record is in [`FINAL_VALIDATION_RECORD.md`](FINAL_VALIDATION_RECORD.md). Coverage is a guardrail, not a substitute for service-backed behavior, failure injection, or acceptance evidence.
 
-MongoDB is canonical event state. Elasticsearch is an eventually consistent,
-rebuildable projection and Redis is disposable cache/rate-limit state. A `202`
-response confirms validated admission to the process-local queue; normal graceful
-shutdown drains accepted work before closing the worker, but a process crash can still
-lose volatile queued messages, so that admission is not durable across application-process failure. Queue delivery is at-least-once, and duplicate
-persistence is handled through immutable event IDs and owner-fenced idempotency records.
-The local stack is intentionally single-process; production SQS is the scaling
-path described in `ARCHITECTURE.md` and `docs/operations/sqs-migration.md`.
+The testing priority is to prove failure boundaries and recovery behavior before adding breadth. Further work would focus on long-running multi-replica load profiles, deployment-edge tenant authorization, and sustained projector/load behavior under representative production traffic.
+
+## CI and release validation
+
+Pull requests and pushes to `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Its quality job performs locked installation, formatting, Ruff, MyPy, dependency checks, Compose validation, source-archive hygiene, unit/functional/failure tests, branch-aware coverage, and diff checks. Its service job resets Compose and runs smoke, required integration, rebuild acceptance, E2E, and performance checks. A dependent Docker job validates the Compose configuration and builds the application and UI images. Required service jobs fail when required dependencies or cases are unavailable; they do not turn skips into green evidence.
+
+Tags matching `v*.*.*` run [`.github/workflows/release.yml`](.github/workflows/release.yml) as a deployment simulation. Release validation repeats the quality, coverage, Compose, smoke, integration, acceptance, E2E, performance, and Docker gates, then produces a source archive, build metadata, SHA-256 checksums, coverage XML, performance output, and Compose logs. The current workflow does not claim to produce an SBOM.
 
 ## Postman reviewer suite
 
-Import the v2.1 collection and local environment from `postman/`, then run the
-numbered folders in order. The collection captures an event ID and uses bounded
-polling for canonical query and Elasticsearch search. Newman users can run
-`make postman`; the wrapper exits clearly when Newman or the API is unavailable. In
-the recorded local live run, the same collection passed through
-`npx --yes newman` because Newman was not installed globally.
-
-Feature 025 reconciles the final architecture, traceability, and AI workflow documentation. The current reviewer URLs are:
-
-- API docs: `http://localhost:8000/docs`
-- Liveness: `http://localhost:8000/health/live`
-- Readiness: `http://localhost:8000/health/ready`
-- Component health: `http://localhost:8000/health/components`
-- Metrics: `http://localhost:8000/metrics`
-
-The metrics endpoint is intentionally a small in-process, dependency-free
-observability surface for the interview assignment. It reports bounded counters,
-fixed latency buckets, and current queue/worker/projection gauges without adding
-Prometheus, OpenTelemetry, or Grafana to the stack. A production deployment can
-export these same measurements through a monitoring adapter.
+The [`postman/`](postman/) directory contains the collection and local Docker environment used for the reviewer flow. Import the collection and environment, start Compose, and run the numbered folders in order. The collection captures an event ID and uses bounded polling for canonical and Elasticsearch visibility. `make postman` exits with a diagnostic if Newman is not installed or the API is unavailable; it never hides a failed request.
 
 ## AI in My Workflow
 
-This repository records AI collaboration in [`docs/ai-workflow-log.md`](docs/ai-workflow-log.md). ChatGPT running GPT-5.6 Sol and Codex used the Spec Kit workflows to turn each ordered request into accepted specifications, plans, contracts, checklists, tasks, implementation changes, convergence notes, and review evidence. Serena MCP searches were used to trace existing route, lifecycle, storage, queue, projection, cache, Compose, and documentation ownership before proposing changes.
+The repository used ChatGPT/GPT-5.6 Sol, Codex, Serena MCP, and Spec Kit workflows. AI assisted with repository exploration, architecture decomposition, typed boundary design, adversarial review, test scaffolding, Docker/CI quality gates, and documentation consistency. Serena searches were used to trace actual ownership across the API, queue, worker, MongoDB, Elasticsearch, Redis, Compose, and frontend layers before editing.
 
-Concrete examples include mapping Mongo as canonical and Elasticsearch/Redis as derived state; adding bounded Compose startup and smoke checks; building the Postman suite around actual response/problem contracts; creating the reviewer UI against the existing nginx `/api/` boundary; and adding locked Make/CI commands with coverage artifacts. Review agents then challenged incorrect assumptions: the Postman suite stopped claiming repeated requests reuse the original event ID, polling gained request timeouts and reachable degraded paths, the UI added filters/cursors and preserved degraded dashboard state, and the rebuild demo became a truthful guarded command instead of a failing promise.
+The most valuable corrections came from challenging proposed guarantees. An early rebuild design treated MongoDB ObjectId ordering too strongly. Review identified that a writer can allocate an ObjectId before its insert commits, so ObjectId cannot be the convergence watermark. The implementation now uses `_id` only as `backfill_upper_bound`, enables candidate dual-write before the scan, captures an independent Mongo change-stream `source_fence`, compares ordered `clusterTime` values, keeps resume tokens opaque, verifies identities, and swaps the stable alias atomically only after projector convergence. Other review corrections preserved canonical ingestion when Elasticsearch fails, fenced producer/projector races, and removed unsupported test claims when runtime evidence was missing.
 
-Human judgment remained authoritative. The constitution, ADRs, accepted specifications, service contracts, and observed test/runtime evidence determined what was accepted. AI suggestions were rejected or narrowed when they would imply durable `202` acceptance, exactly-once processing, authoritative Elasticsearch/Redis state, unverified live services, or product-level UI scope.
+AI accelerated architecture searches, adversarial scenarios, regression tests, and cross-document checks. Acceptance remained evidence-driven: repository code, executable tests, service-backed runs, and observed runtime behavior overruled generated suggestions. The detailed chronology is in [`docs/ai-workflow-log.md`](docs/ai-workflow-log.md).
 
-## Reviewer operations UI
+## Deliberate tradeoffs
 
-Open `http://localhost:3000` after the Compose stack is running. The console
-provides dashboard, event generation, canonical events, eventually consistent
-search, analytics, realtime cache status, and read-only operations views. Event
-bursts are capped at 500 requests, with request starts paced across five seconds,
-and all API errors render their safe problem fields. The adjacent **Visualizer**
-page adds D3 7.9.0 operational charts for throughput, event types, queue health,
-latency buckets, cache effectiveness, projection processing delay, and dependency health. It
-polls the consolidated `/api/operations/visualizer` snapshot every 500 ms
-without overlapping requests, pauses while the tab is hidden, and retains only
-600 samples (five minutes). Existing Realtime and other views remain unchanged.
-The static SPA supports shareable links and browser back/forward navigation:
-`/dashboard`, `/generator`, `/events`, `/search`, `/analytics`, `/realtime`,
-`/visualizer`, and `/operations`. The root path `/` opens the dashboard, and
-nginx serves the SPA fallback for direct route loads.
+- The in-process SQS-style queue is volatile if the whole process terminates; SQS or an equivalent durable queue is the production migration path.
+- Elasticsearch is eventually consistent and may be degraded while MongoDB continues accepting canonical events.
+- Redis is disposable cache and rate-limit coordination state, not event truth.
+- The production security boundary uses a shared bearer token; tenant and role identity are expected at a trusted edge rather than invented in this service.
+- The performance command is a repeatable regression probe, not a capacity or service-level claim.
+- Local Compose publishes dependency ports to support developer and integration testing; a deployment should keep those ports private.
 
-The final submission documentation includes:
+## Local development
 
-1. Project overview and key guarantees
-2. Architecture summary and link to `ARCHITECTURE.md`
-3. Quick start / Docker Compose
-4. Configuration table
-5. API endpoint documentation with examples
-6. Queue semantics and `202` durability caveat
-7. Testing philosophy and commands
-8. Postman reviewer workflow
-9. Demo UI guide
-10. Operational/health/metrics guide
-11. Elasticsearch rebuild command/behavior
-12. SQS production migration summary
-13. Known constraints/tradeoffs
-14. **AI in My Workflow** — tools used, concrete contributions, corrections/pushback, and how AI changed speed/quality, grounded in `docs/ai-workflow-log.md`
+The backend supports Python `>=3.12`, as declared in `pyproject.toml`. The
+`uv.lock` lockfile is consumed by `uv sync --locked`; the application image
+uses Python 3.14.7-slim, and CI validates the locked environment on Python 3.14
+with uv 0.12.17.
 
-Do not leave generic AI boilerplate. The panel specifically wants evidence of strategic AI use and human judgment.
+```bash
+cp .env.example .env
+uv sync --locked
+uv run --locked uvicorn event_platform.main:create_app --factory \
+  --log-config src/event_platform/core/uvicorn_logging.json \
+  --host 127.0.0.1 --port 8000 --workers 1
+```
 
-## Testing and evidence
+That direct process is useful for API and functional work. Use the Compose quick start when MongoDB, Elasticsearch, Redis, change streams, storage bootstrap, the worker, or the reviewer UI are part of the scenario.
 
-The local static gates are `make format-check`, `make lint`, `make typecheck`,
-`make coverage`, `make test-unit`, `make test-functional`, and `make test-failure`.
-Service-backed targets require real MongoDB, Elasticsearch, and Redis and fail
-when an expected case is skipped. `make smoke` is a clean-stack black-box gate;
-`make performance` is a lightweight non-regression probe, while heavier load
-tests remain an explicit manual or scheduled activity. CI retains coverage,
-JUnit, Compose logs, performance output, and release checksums as artifacts.
+## Repository guide
 
-## Integration lifecycles
+```text
+src/event_platform/   Backend application, domain, queue, storage, and integrations
+tests/                 Unit, functional, failure, integration, E2E, and acceptance tests
+frontend/              Optional reviewer UI and D3 Visualizer
+docs/                  Architecture, operations, testing, and workflow documentation
+postman/               Reviewer API collection and local environment
+scripts/               Smoke, integration, performance, and release helpers
+.github/workflows/     CI and tagged-release validation
+```
 
-Feature 019's lifecycle scenarios use real MongoDB, Elasticsearch, and Redis endpoints supplied through `MONGO_URI`, `ELASTICSEARCH_URL`, and `REDIS_URL`. The feature covers HTTP ingestion to canonical query, Mongo change-stream projection to search, analytics grouping, realtime cache miss/hit, duplicate redelivery, and the online rebuild continuity scenario. Run `make test-integration` for dependency-optional collection, `make test-integration-required` for the complete service-backed gate, and `make test-acceptance-required` for the rebuild lifecycle evidence. Missing or unavailable services are explicit skips only in the optional selection; required gates fail. Feature 019 scenarios use unique namespaces, deterministic barriers, bounded poll-until assertions, and cleanup in `finally` blocks.
+## Further documentation
 
-Feature 020's deterministic failure selection runs without external endpoints:
-`make test-failure`. See the [failure-suite
-README](tests/failure/README.md) for the covered invariants and keep this
-evidence separate from Feature 019's service-backed integration lifecycles.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — system boundaries, failure modes, indexes, rebuild protocol, scaling, and deployment topology.
+- [`QUALITY-GATES-REPORT.md`](QUALITY-GATES-REPORT.md) — latest test layers, coverage, performance, smoke, and release evidence.
+- [`FINAL_VALIDATION_RECORD.md`](FINAL_VALIDATION_RECORD.md) — convergence invariant, service-backed acceptance, and clean-stack validation commands.
+- [`docs/operations/elasticsearch-rebuild.md`](docs/operations/elasticsearch-rebuild.md) — online rebuild runbook and evidence.
+- [`docs/operations/sqs-migration.md`](docs/operations/sqs-migration.md) — durable production queue migration design.
+- [`tests/failure/README.md`](tests/failure/README.md) — deterministic failure and recovery coverage.
+- [`postman/README.md`](postman/README.md) — reviewer collection setup.
+- [`docs/ai-workflow-log.md`](docs/ai-workflow-log.md) — detailed AI collaboration and review chronology.
