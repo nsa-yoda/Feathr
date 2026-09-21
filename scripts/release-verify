@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+artifact_dir=${RELEASE_ARTIFACT_DIR:-artifacts/release}
+mkdir -p "$artifact_dir"
+version=${GITHUB_REF_NAME:-${RELEASE_VERSION:-$(python -c 'import importlib.metadata; print(importlib.metadata.version("event-platform"))')}}
+sha=${GITHUB_SHA:-$(git rev-parse HEAD)}
+timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cat >"$artifact_dir/BUILD-METADATA.json" <<EOF
+{
+  "version": "${version}",
+  "git_sha": "${sha}",
+  "built_at": "${timestamp}"
+}
+EOF
+git archive --format=tar.gz --prefix="feathr-${version}/" HEAD >"$artifact_dir/feathr-${version}.tar.gz"
+sha256sum "$artifact_dir"/* >"$artifact_dir/SHA256SUMS"
+cat "$artifact_dir/BUILD-METADATA.json"

@@ -53,8 +53,15 @@ testpaths = ["tests"]
 addopts = "--strict-markers"
 markers = [
   "unit: isolated foundation behavior",
+  "functional: public HTTP contract tests without external services",
   "integration: tests with real external services",
+  "e2e: black-box tests against a running application stack",
+  "acceptance: executable architectural acceptance contracts",
   "failure: dependency and recovery failure scenarios",
+  "performance: repeatable lightweight performance probes",
+  "smoke: clean-stack smoke checks",
+  "security: security and dependency hardening checks",
+  "release: tagged release validation",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

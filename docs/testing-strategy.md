@@ -56,7 +56,27 @@ Elasticsearch, and Redis lifecycle evidence.
 
 ## Coverage
 
-Use coverage reporting as a signal, not the sole acceptance metric. Critical queue/idempotency/retry/rate-limit modules should have especially high branch coverage. Run `make coverage` to execute the locked unit suite, print line and branch coverage, and write `coverage/coverage.xml`. The ACR2 unit gate contains 388 tests and enforces a 90% terminal threshold. This result is a snapshot of the isolated unit suite and does not replace semantic review, integration, failure, browser, Compose, or Postman evidence.
+Use coverage reporting as a signal, not the sole acceptance metric. Critical queue/idempotency/retry/rate-limit modules should have especially high branch coverage. Run `make coverage` to execute the locked unit, functional, and failure suite with branch measurement, print line and branch coverage, and write `coverage/coverage.xml`. The gate enforces a 90% terminal threshold and records uncovered integration-only lifecycle code in `QUALITY-GATES-REPORT.md`. This result does not replace semantic review, integration, E2E, acceptance, Compose, or Postman evidence.
+
+## Verification layers and commands
+
+The taxonomy is explicit and markers are registered in `pyproject.toml`:
+
+- `make test-unit` and `make test-functional` are fast local checks;
+- `make test-failure` exercises deterministic outage and recovery paths;
+- `make test-integration-required` runs the complete real MongoDB, Elasticsearch,
+  and Redis suite and fails if a case is skipped;
+- `make test-acceptance-required` runs the service-backed online rebuild contract;
+- `make test-e2e-required` exercises the running API as a black box;
+- `make performance` records p50/p95/p99 and error counts in
+  `artifacts/performance.json` against a running stack;
+- `make smoke` verifies clean Compose startup, readiness, ingestion, canonical
+  query, projection, analytics, and realtime statistics.
+
+The pull-request workflow runs static checks, branch coverage, failure tests,
+service-backed integration/acceptance/E2E checks, Docker validation, and smoke.
+The tag workflow repeats required gates and emits a versioned source archive,
+metadata, and SHA-256 checksums.
 
 ## Integration lifecycle evidence
 

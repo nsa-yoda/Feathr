@@ -37,10 +37,16 @@ Run the foundation checks with:
 make format-check
 make lint
 make typecheck
+make dependency-check
 make test-unit
+make test-functional
 make test-integration
+make test-integration-required   # requires MongoDB, Elasticsearch, and Redis
+make test-acceptance-required    # service-backed online rebuild
+make test-e2e-required           # requires E2E_BASE_URL
 make test-failure
 make coverage
+make performance                # requires a running stack
 ```
 
 Developer workflow targets:
@@ -72,8 +78,11 @@ unprivileged Nginx frontend at 1.31.6; `uv.lock` is always consumed with
 The unit suite is the isolated semantic suite for settings, lifecycle state machines,
 queue/worker acknowledgement boundaries, idempotency/projector races, query/search/
 analytics contracts, caching, rate limiting, request IDs, and problem responses.
-`make coverage` measures backend source lines and branches and writes
-`coverage/coverage.xml`; it is a guardrail, not proof of semantic completeness.
+`make coverage` measures backend source lines and branches across unit,
+functional, and failure tests and writes `coverage/coverage.xml`; it is a
+guardrail, not proof of semantic completeness. The current quality floor is
+90% total branch-aware coverage, with risk-based tests prioritized over trivial
+line execution.
 Coverage does not replace integration tests against MongoDB, Elasticsearch, or Redis,
 failure-injection tests, browser checks, Compose smoke, or Postman review flows. The
 testing philosophy is to prove state transitions and failure dispositions at unit level,
@@ -239,12 +248,12 @@ Do not leave generic AI boilerplate. The panel specifically wants evidence of st
 ## Testing and evidence
 
 The local static gates are `make format-check`, `make lint`, `make typecheck`,
-`make test-unit`, `make test-integration`, and `make test-failure`. Unit and
-failure selections run without external services; integration tests collect
-real-service lifecycles and explicitly skip when MongoDB, Elasticsearch, or
-Redis endpoints are unavailable. The recorded local Colima run passed clean
-Compose smoke and all 45 Newman/Postman assertions; browser UI, online rebuild,
-and hosted CI remain live gates that require their respective environments.
+`make coverage`, `make test-unit`, `make test-functional`, and `make test-failure`.
+Service-backed targets require real MongoDB, Elasticsearch, and Redis and fail
+when an expected case is skipped. `make smoke` is a clean-stack black-box gate;
+`make performance` is a lightweight non-regression probe, while heavier load
+tests remain an explicit manual or scheduled activity. CI retains coverage,
+JUnit, Compose logs, performance output, and release checksums as artifacts.
 
 ## Integration lifecycles
 

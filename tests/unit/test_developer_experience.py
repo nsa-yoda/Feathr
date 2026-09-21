@@ -29,7 +29,10 @@ def test_makefile_exposes_locked_quality_and_lifecycle_targets() -> None:
         "rebuild-demo",
     ):
         assert f"{target}:" in text
-    assert "all: format-check lint typecheck test-unit test-integration test-failure" in text
+    assert (
+        "all: format-check lint typecheck dependency-check test-unit test-functional test-integration test-failure"
+        in text
+    )
     assert "uv run --locked" in text
     assert "compose-reset:" in text and "down -v" in text
     assert text.count("--env-file .env.example") >= 4
@@ -54,8 +57,8 @@ def test_ci_runs_independent_locked_static_tests_and_artifacts() -> None:
     assert "actions/checkout@v7" in text
     assert "actions/setup-python@v7" in text
     assert "actions/upload-artifact@v7.0.1" in text
-    assert 'python-version: "3.14"' in text
-    assert 'version: "0.12.17"' in text
+    assert 'PYTHON_VERSION: "3.14"' in text
+    assert 'UV_VERSION: "0.12.17"' in text
     assert "uv sync --locked" in text
     for command in (
         "make format-check",
@@ -63,16 +66,18 @@ def test_ci_runs_independent_locked_static_tests_and_artifacts() -> None:
         "make typecheck",
         "make compose-config",
         "make test-unit",
+        "make test-functional",
         "make test-failure",
-        "make test-integration",
+        "make test-integration-required",
+        "make test-e2e-required",
     ):
         assert command in text
     assert "cache-dependency-glob: uv.lock" in text
     assert "actions/upload-artifact@v7.0.1" in text
     assert "coverage/coverage.xml" in text
     assert "pull_request:" in text and "branches: [main]" in text
-    assert "needs: static" not in text and "if: always()" in text
-    assert "runtime:" in text and "make smoke" in text and "make compose-down" in text
+    assert "needs: quality" in text and "if: always()" in text
+    assert "service:" in text and "make smoke" in text and "docker compose" in text
 
 
 def test_readme_documents_reproducible_workflow_and_rebuild_cli() -> None:

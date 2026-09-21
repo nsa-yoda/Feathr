@@ -8,60 +8,93 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.12.17"
+  PYTHON_VERSION: "3.14"
+
 jobs:
-  static:
+  quality:
+    name: Static and unit quality
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.1.0
         with:
-          version: "0.12.17"
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --locked
       - run: make format-check
       - run: make lint
       - run: make typecheck
+      - run: make dependency-check
       - run: make compose-config
+      - run: make check-source-archive
+      - run: make test-unit
+      - run: make test-functional
+      - run: make test-failure
+      - run: make coverage
+      - run: git diff --check
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: quality-coverage
+          path: |
+            coverage/coverage.xml
+            .coverage
+          if-no-files-found: ignore
 
-  tests:
+  service:
+    name: Service-backed integration, acceptance, E2E, and smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.1.0
         with:
-          version: "0.12.17"
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --locked
-      - run: make test-unit
-      - run: make test-failure
-      - run: make check-source-archive
-      - run: uv run --locked coverage run --branch --source=src/event_platform -m pytest -q tests/unit
-      - run: uv run --locked coverage report --show-missing --fail-under=90
-      - run: uv run --locked coverage xml -o coverage/coverage.xml
-      - run: docker compose --env-file .env.example up --build -d
+      - run: docker compose --env-file .env.example config --quiet
+      - run: docker compose --env-file .env.example down -v --remove-orphans
+      - run: make smoke
+        env:
+          SMOKE_DEADLINE_SECONDS: "180"
       - run: MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' ELASTICSEARCH_URL='http://127.0.0.1:9200' REDIS_URL='redis://127.0.0.1:6379/0' make test-integration-required
+      - run: MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' ELASTICSEARCH_URL='http://127.0.0.1:9200' REDIS_URL='redis://127.0.0.1:6379/0' make test-acceptance-required
+      - run: E2E_BASE_URL='http://127.0.0.1:8000' make test-e2e-required
+      - run: PERF_BASE_URL='http://127.0.0.1:8000' PERF_REQUESTS=10 make performance
       - if: always()
-        run: docker compose --env-file .env.example down -v
+        run: docker compose --env-file .env.example ps && docker compose --env-file .env.example logs --no-color > compose.log
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
-          name: coverage
-          path: coverage/coverage.xml
+          name: service-evidence
+          path: |
+            compose.log
+            artifacts/performance.json
           if-no-files-found: ignore
+      - if: always()
+        run: docker compose --env-file .env.example down -v --remove-orphans
 
-  runtime:
+  docker:
+    name: Docker build validation
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: quality
     steps:
       - uses: actions/checkout@v7
-      - run: make compose-up
-      - run: make smoke
-      - if: always()
-        run: make compose-down
+      - run: docker compose --env-file .env.example config --quiet
+      - run: docker compose --env-file .env.example build

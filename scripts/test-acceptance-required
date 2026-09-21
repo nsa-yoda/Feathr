@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+report="${TMPDIR:-/tmp}/feathr-acceptance.xml"
+uv run --locked pytest -q tests/integration/test_rebuild_live.py -m 'integration and acceptance' --junitxml="$report"
+python - "$report" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+skipped = sum(int(case.attrib.get("skip", "0") or 0) for case in root.iter("testcase"))
+if skipped:
+    raise SystemExit(f"acceptance suite reported {skipped} skipped tests")
+PY

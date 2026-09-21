@@ -41,7 +41,7 @@ from tests.integration.support import (
     require_mongo,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.acceptance]
 
 
 def _event(label: str) -> CanonicalEvent:
