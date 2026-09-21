@@ -38,8 +38,8 @@ function card(title, value, detail = '') {
   return `<article class="card visualizer-card"><h3>${esc(title)}</h3><div class="metric">${esc(value)}</div><div class="muted">${esc(detail)}</div></article>`;
 }
 
-function chartCard(id, title, description) {
-  return `<article class="card chart-card"><h3>${esc(title)}</h3><p class="muted chart-description">${esc(description)}</p><svg id="${id}" class="viz-chart" role="img" aria-label="${esc(title)}"></svg></article>`;
+function chartCard(id, title, description, footer = '') {
+  return `<article class="card chart-card"><h3>${esc(title)}</h3><p class="muted chart-description">${esc(description)}</p><svg id="${id}" class="viz-chart" role="img" aria-label="${esc(title)}"></svg>${footer}</article>`;
 }
 
 function statusClass(state) {
@@ -137,7 +137,7 @@ function updateLatencyChart(selector, latency) {
 function visualizerView() {
   cleanupVisualizer();
   const app = document.getElementById('app');
-  app.innerHTML = `<section class="view visualizer-view"><div class="visualizer-heading"><div><h2>Visualizer</h2><p class="lede">Live operational and analytics signals from the running platform.</p></div><div id="visualizer-live" class="live-indicator warn" role="status">Connecting…</div></div><div id="visualizer-health" class="health-row"></div><div id="visualizer-cards" class="grid"></div><div class="chart-grid">${chartCard('throughput-chart', 'Event throughput', 'Events per second over the bounded five-minute window.')}${chartCard('type-chart', 'Events by type', 'Current realtime distribution from canonical analytics.')}${chartCard('queue-chart', 'Queue health', 'Depth, in-flight messages, and oldest-message age.')}${chartCard('latency-chart', 'Dependency latency buckets', 'Bounded histogram buckets exported by the lightweight metrics registry.')}</div><div id="visualizer-message" class="notice" role="status">Waiting for the first operational snapshot…</div></section>`;
+  app.innerHTML = `<section class="view visualizer-view"><div class="visualizer-heading"><div><h2>Visualizer</h2><p class="lede">Live operational and analytics signals from the running platform.</p></div><div id="visualizer-live" class="live-indicator warn" role="status">Connecting…</div></div><div id="visualizer-health" class="health-row"></div><div id="visualizer-cards" class="grid"></div><div class="chart-grid">${chartCard('throughput-chart', 'Event throughput', 'Events per second over the bounded five-minute window.')}${chartCard('type-chart', 'Events by type', 'Current realtime distribution from canonical analytics.')}${chartCard('queue-chart', 'Queue health', 'Depth, in-flight messages, and oldest-message age.')}${chartCard('latency-chart', 'Dependency latency buckets', 'Bounded histogram buckets exported by the lightweight metrics registry.')}<article class="card chart-card latency-summary-card"><h3>Latency percentiles</h3><p class="muted chart-description">Calculated from the exported bounded histogram buckets.</p><div id="latency-summary"></div></article></div><div id="visualizer-message" class="notice" role="status">Waiting for the first operational snapshot…</div></section>`;
   const session = { active: true, staleTimer: null, previous: null, latest: null, history: [], poller: null };
   activeSession = session;
   window.__feathrVisualizerCleanup = cleanupVisualizer;
@@ -166,6 +166,7 @@ function visualizerView() {
     updateTypeChart('#type-chart', sample.types);
     updateLineChart('#queue-chart', session.history, ['depth', 'oldestAge', 'inFlight'], (d, key) => d.queue[key]);
     updateLatencyChart('#latency-chart', sample.latencies);
+    document.getElementById('latency-summary').innerHTML = `<table class="latency-table"><thead><tr><th>Dependency</th><th>p50</th><th>p95</th><th>p99</th></tr></thead><tbody>${Object.entries(sample.latencies).map(([name, value]) => `<tr><td>${esc(name)}</td><td>${esc(formatLatency(value.p50))}</td><td>${esc(formatLatency(value.p95))}</td><td>${esc(formatLatency(value.p99))}</td></tr>`).join('')}</tbody></table>`;
     setLive('Live • updated now', 'good');
     setMessage(`Snapshot ${new Date(sample.timestamp).toLocaleTimeString()} • ${snapshot.realtime_cache || 'metrics'} cache`);
   };

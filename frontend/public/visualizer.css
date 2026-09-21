@@ -10,4 +10,5 @@
 .viz-chart { display:block; width:100%; min-height:220px; color:var(--muted); overflow:visible; }
 .viz-chart .domain, .viz-chart .tick line { stroke:var(--line); } .viz-chart .tick text, .viz-chart .legend text { fill:var(--muted); font-size:10px; }
 .viz-chart .legend text { font-weight:600; } .visualizer-card .metric { font-variant-numeric:tabular-nums; }
+.latency-table { font-size:.8rem; } .latency-table th, .latency-table td { padding:.35rem .45rem; }
 @media (max-width:700px) { .chart-grid { grid-template-columns:1fr; } .viz-chart { min-height:190px; } }
