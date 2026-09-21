@@ -1,0 +1,13 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /tools/postman
+    schedule:
+      interval: weekly
+    # Newman 6.2.2 is the latest upstream release. Its Postman runtime
+    # currently pins incompatible transitive versions, so Dependabot cannot
+    # produce a safe update. Re-enable this entry when Newman publishes a
+    # release with a remediated dependency tree.
+    ignore:
+      - dependency-name: newman
