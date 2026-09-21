@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from event_platform.core.settings import ServiceSettings
-from event_platform.main import create_app
+from event_platform.main import _change_stream_position_at_or_after, create_app
 from event_platform.storage.bootstrap import StorageVerification
 
 pytestmark = pytest.mark.unit
@@ -176,3 +176,10 @@ def test_configured_lifespan_wires_mongo_redis_elasticsearch_projector_and_worke
 
 async def _done() -> None:
     return None
+
+
+@pytest.mark.unit
+def test_change_stream_position_comparison_preserves_cluster_time_ordering() -> None:
+    assert _change_stream_position_at_or_after("12:4", "12:3")
+    assert not _change_stream_position_at_or_after("12:3", "12:4")
+    assert _change_stream_position_at_or_after("opaque-z", "opaque-a")

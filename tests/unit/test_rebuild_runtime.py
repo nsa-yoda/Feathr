@@ -7,7 +7,7 @@ import pytest
 
 from event_platform.core.settings import ServiceSettings
 from event_platform.search.rebuild import RebuildError
-from event_platform.search.rebuild_runtime import configured_rebuild_runtime
+from event_platform.search.rebuild_runtime import _at_or_after, configured_rebuild_runtime
 
 
 class _Collection:
@@ -149,6 +149,85 @@ def test_rebuild_runtime_constructs_and_closes_owned_graph(monkeypatch: pytest.M
     assert mongo.closed is True
     assert elasticsearch.closed is True
     assert lease_store.released is True
+
+
+@pytest.mark.unit
+def test_rebuild_runtime_ordered_position_comparison_is_lossless() -> None:
+    assert _at_or_after(None, None)
+    assert not _at_or_after(None, "10:1")
+    assert _at_or_after("10:2", "10:1")
+    assert not _at_or_after("10:1", "10:2")
+    assert _at_or_after("opaque-z", "opaque-a")
+
+
+@pytest.mark.unit
+def test_rebuild_runtime_callbacks_capture_source_fence_and_wait_for_projector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mongo = _Mongo()
+    elasticsearch = _Elasticsearch()
+    lease_store = _LeaseStore(None)
+
+    class BoundedSource(_Source):
+        async def capture_backfill_upper_bound(self) -> str | None:
+            return "000000000000000000000010"
+
+    class Fence:
+        async def latest_position(self) -> str:
+            return "12:4"
+
+    class FencedChangeSource(_ChangeSource):
+        async def begin_fence(self) -> Fence:
+            return Fence()
+
+    class ProgressProjector(_Projector):
+        def __init__(self, **kwargs: object) -> None:
+            super().__init__(**kwargs)
+            self.positions = iter(("12:3", "12:4"))
+
+        def change_stream_position(self) -> str | None:
+            return next(self.positions, "12:4")
+
+    monkeypatch.setattr(
+        "event_platform.search.rebuild_runtime.AsyncMongoClient", lambda *_a, **_k: mongo
+    )
+    monkeypatch.setattr(
+        "event_platform.search.rebuild_runtime.create_client", lambda *_a, **_k: elasticsearch
+    )
+    monkeypatch.setattr("event_platform.search.rebuild_runtime.ensure_search_alias", _noop)
+    monkeypatch.setattr("event_platform.search.rebuild_runtime.MongoRebuildSource", BoundedSource)
+    monkeypatch.setattr("event_platform.search.rebuild_runtime.MongoRebuildStore", _State)
+    monkeypatch.setattr(
+        "event_platform.search.rebuild_runtime.MongoProjectionCheckpointStore", _Checkpoint
+    )
+    monkeypatch.setattr(
+        "event_platform.search.rebuild_runtime.MongoProjectionLeaseStore", lambda _c: lease_store
+    )
+    monkeypatch.setattr(
+        "event_platform.search.rebuild_runtime.MongoChangeStreamSource", FencedChangeSource
+    )
+    monkeypatch.setattr("event_platform.search.rebuild_runtime.SearchProjector", ProgressProjector)
+    monkeypatch.setattr(
+        "event_platform.search.rebuild_runtime.ElasticsearchProjectionWriter",
+        lambda *_a, **_k: object(),
+    )
+
+    settings = ServiceSettings(
+        env="test",
+        mongo_url="mongodb://mongo.test",
+        elasticsearch_url="http://es.test",
+    )
+
+    async def exercise() -> None:
+        async with configured_rebuild_runtime(settings) as rebuilder:
+            boundary = await rebuilder._capture_boundary()  # type: ignore[attr-defined]
+            assert boundary.backfill_upper_bound == "000000000000000000000010"
+            assert boundary.change_stream_position == "12:3"
+            convergence = await rebuilder._wait_for_convergence(boundary)  # type: ignore[attr-defined]
+            assert convergence.source_fence == "12:4"
+            assert convergence.projector_change_stream_position == "12:4"
+
+    asyncio.run(exercise())
 
 
 async def _noop(*_args: object, **_kwargs: object) -> None:

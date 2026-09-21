@@ -73,6 +73,7 @@ from event_platform.storage.idempotency import (
     IdempotencyRegistryError,
     InMemoryIdempotencyRegistry,
     MongoIdempotencyRegistry,
+    registry_id,
 )
 from event_platform.storage.rebuilds import MongoRebuildStore, RebuildStorageError
 
@@ -848,6 +849,32 @@ async def test_in_memory_idempotency_handles_expiry_and_type_boundaries() -> Non
         )
     ).outcome == "replay"
 
+    fresh = await registry.reserve(
+        **{**args, "key": "fresh-key", "event_id": UUID(int=3), "now": now}
+    )
+    assert fresh.reservation_token is not None
+    await registry.complete(
+        scope="scope",
+        key="fresh-key",
+        operation="operation",
+        event_id=UUID(int=3),
+        reservation_token="stale-token",
+    )
+    await registry.release(
+        scope="scope",
+        key="fresh-key",
+        operation="operation",
+        event_id=UUID(int=3),
+        reservation_token="stale-token",
+    )
+    await registry.release(
+        scope="scope",
+        key="fresh-key",
+        operation="operation",
+        event_id=UUID(int=3),
+        reservation_token=fresh.reservation_token,
+    )
+
 
 class IdempotencyCollection:
     def __init__(self, document: dict[str, object] | None = None) -> None:
@@ -970,6 +997,56 @@ async def test_mongo_idempotency_registry_handles_duplicate_and_driver_errors() 
         await registry.complete(
             scope="scope", key="key", operation="operation", event_id=UUID(int=1)
         )
+
+
+@pytest.mark.asyncio
+async def test_mongo_idempotency_registry_covers_owner_fenced_completion_release_and_takeover() -> (
+    None
+):
+    collection = IdempotencyCollection(
+        {
+            "_id": registry_id("scope", "key", "operation"),
+            "fingerprint": "fingerprint",
+            "event_id": str(UUID(int=1)),
+            "status": "reserved",
+            "created_at": datetime(2020, 1, 1, tzinfo=UTC),
+            "reservation_token": "old-token",
+            "generation": 1,
+        }
+    )
+    registry = MongoIdempotencyRegistry(collection)  # type: ignore[arg-type]
+
+    collection.update_error = False
+    refreshed = await registry.reserve(**idem_args(event_id=UUID(int=2)))
+    assert refreshed.outcome == "new"
+    assert refreshed.reservation_token is not None
+
+    await registry.complete(
+        scope="scope",
+        key="key",
+        operation="operation",
+        event_id=UUID(int=2),
+        reservation_token=refreshed.reservation_token,
+    )
+    await registry.release(
+        scope="scope",
+        key="key",
+        operation="operation",
+        event_id=UUID(int=2),
+        reservation_token=refreshed.reservation_token,
+    )
+
+    collection.document = {
+        "_id": registry_id("scope", "key", "operation"),
+        "fingerprint": "fingerprint",
+        "event_id": str(UUID(int=1)),
+        "status": "reserved",
+        "created_at": datetime(2020, 1, 1, tzinfo=UTC),
+        "reservation_token": "old-token",
+        "generation": "bad",
+    }
+    with pytest.raises(IdempotencyRegistryError, match="reserve_idempotency"):
+        await registry.reserve(**idem_args(event_id=UUID(int=2)))
 
 
 class RebuildCollection:

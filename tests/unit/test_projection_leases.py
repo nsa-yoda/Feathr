@@ -2,8 +2,9 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
-from event_platform.storage.projection_leases import MongoProjectionLeaseStore
+from event_platform.storage.projection_leases import MongoProjectionLeaseStore, ProjectionLeaseError
 
 pytestmark = pytest.mark.unit
 
@@ -93,3 +94,67 @@ async def test_release_keeps_fencing_generation_and_checkpoint_floor_is_honored(
         projector="events-search", owner="new-owner", minimum_generation=7
     )
     assert recovered is not None and recovered.generation == 8
+
+
+@pytest.mark.asyncio
+async def test_projection_lease_rejects_invalid_arguments_and_duplicate_races() -> None:
+    store = MongoProjectionLeaseStore(LeaseCollection())  # type: ignore[arg-type]
+    for kwargs in (
+        {"projector": "", "owner": "owner"},
+        {"projector": "events-search", "owner": ""},
+        {"projector": "events-search", "owner": "owner", "lease_seconds": 0},
+        {"projector": "events-search", "owner": "owner", "minimum_generation": -1},
+    ):
+        with pytest.raises(ValueError, match="projection lease arguments"):
+            await store.acquire(**kwargs)
+
+    class Duplicate:
+        async def find_one(self, _query: object) -> None:
+            return None
+
+        async def find_one_and_update(self, *_args: object, **_kwargs: object) -> None:
+            raise DuplicateKeyError("concurrent insert")
+
+    assert (
+        await MongoProjectionLeaseStore(Duplicate()).acquire(
+            projector="events-search", owner="owner"
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_projection_lease_classifies_decode_and_fencing_update_failures() -> None:
+    class InvalidDocument:
+        async def find_one(self, _query: object) -> Mapping[str, object]:
+            return {"owner": "owner", "generation": "invalid"}
+
+        async def find_one_and_update(
+            self, *_args: object, **_kwargs: object
+        ) -> Mapping[str, object]:
+            return {"owner": "owner", "generation": "invalid"}
+
+    with pytest.raises(ProjectionLeaseError, match="decode_projection_lease"):
+        await MongoProjectionLeaseStore(InvalidDocument()).acquire(  # type: ignore[arg-type]
+            projector="events-search", owner="owner"
+        )
+
+    class FailingFloorUpdate:
+        async def find_one(self, _query: object) -> Mapping[str, object]:
+            return {"owner": "owner", "generation": 1}
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def find_one_and_update(
+            self, *_args: object, **_kwargs: object
+        ) -> Mapping[str, object]:
+            self.calls += 1
+            if self.calls == 1:
+                return {"owner": "owner", "generation": 1}
+            raise PyMongoError("checkpoint floor race")
+
+    with pytest.raises(ProjectionLeaseError, match="acquire_projection_lease"):
+        await MongoProjectionLeaseStore(FailingFloorUpdate()).acquire(  # type: ignore[arg-type]
+            projector="events-search", owner="owner", minimum_generation=7
+        )

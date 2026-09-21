@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -19,7 +20,7 @@ from event_platform.search.projection import (
     MalformedChange,
     ProjectionError,
 )
-from event_platform.storage.change_stream import MongoChangeStreamSource
+from event_platform.storage.change_stream import MongoChangeStreamFence, MongoChangeStreamSource
 from event_platform.storage.projection_leases import MongoProjectionLeaseStore, ProjectionLeaseError
 from event_platform.storage.rebuild_source import MongoRebuildSource
 
@@ -209,6 +210,8 @@ class _Stream:
 
 
 class _ChangeCollection:
+    database: object | None = None
+
     def __init__(self, streams: list[_Stream]) -> None:
         self.streams = streams
         self.watch_calls: list[dict[str, object]] = []
@@ -257,6 +260,56 @@ async def test_change_stream_source_classifies_invalid_resume_and_malformed_chan
     dependency = _ChangeCollection([_Stream([], PyMongoError("network down"))])
     with pytest.raises(ProjectionError, match="dependency_unavailable"):
         _ = [item async for item in MongoChangeStreamSource(dependency).stream()]
+
+
+@pytest.mark.asyncio
+async def test_change_stream_fence_uses_hello_cluster_time_and_closes_after_errors() -> None:
+    collection = _ChangeCollection([_Stream([])])
+    collection.database = SimpleNamespace(
+        client=SimpleNamespace(
+            admin=SimpleNamespace(
+                command=lambda _name: _async_value(
+                    {"$clusterTime": {"clusterTime": Timestamp(12, 4)}}
+                )
+            )
+        )
+    )
+    source = MongoChangeStreamSource(collection)  # type: ignore[arg-type]
+    fence = await source.begin_fence()
+    assert collection.watch_calls[0]["start_at_operation_time"] == Timestamp(12, 4)
+    assert await fence.latest_position() is None
+
+    invalid = MongoChangeStreamFence(_Stream([], PyMongoError("resume history lost")))
+    with pytest.raises(InvalidResumeHistory):
+        await invalid.latest_position()
+
+    dependency = MongoChangeStreamFence(_Stream([], PyMongoError("network down")))
+    with pytest.raises(ProjectionError, match="dependency_unavailable"):
+        await dependency.latest_position()
+
+
+async def _async_value(value: object) -> object:
+    return value
+
+
+@pytest.mark.asyncio
+async def test_change_stream_latest_and_fence_classify_watch_failures() -> None:
+    class InvalidCollection:
+        async def watch(self, *_args: object, **_kwargs: object) -> object:
+            raise PyMongoError("resume history lost")
+
+    class DownCollection:
+        async def watch(self, *_args: object, **_kwargs: object) -> object:
+            raise PyMongoError("network down")
+
+    for operation in (
+        lambda source: source.latest_position(resume_after={"_data": "old"}),
+        lambda source: source.begin_fence(),
+    ):
+        with pytest.raises(InvalidResumeHistory):
+            await operation(MongoChangeStreamSource(InvalidCollection()))  # type: ignore[arg-type]
+        with pytest.raises(ProjectionError, match="dependency_unavailable"):
+            await operation(MongoChangeStreamSource(DownCollection()))  # type: ignore[arg-type]
 
 
 class _LeaseResult:

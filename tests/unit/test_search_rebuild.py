@@ -11,6 +11,8 @@ from event_platform.domain.events import CanonicalEvent, EventInput
 from event_platform.main import create_app
 from event_platform.search.elasticsearch_rebuild import ElasticsearchRebuildAdapter
 from event_platform.search.rebuild import (
+    RebuildBoundary,
+    RebuildConvergence,
     RebuildError,
     RebuildPhase,
     RebuildRecord,
@@ -287,6 +289,219 @@ async def test_post_swap_state_failure_does_not_delete_serving_target() -> None:
         ).run()
     assert search.swaps
     assert "delete" not in search.events
+
+
+@pytest.mark.asyncio
+async def test_rebuild_fencing_token_loss_stops_before_target_creation() -> None:
+    class LostFence(FakeState):
+        async def fencing_token(self, _rebuild_id: UUID, _owner: str) -> None:
+            return None
+
+    search = FakeSearch()
+    with pytest.raises(RebuildError, match="rebuild_lease_lost"):
+        await SearchRebuilder(
+            state=LostFence(), search=search, source=FakeSource([]), owner="reviewer"
+        ).run()
+    assert search.created == []
+
+
+@pytest.mark.asyncio
+async def test_rebuild_source_boundary_save_failure_is_classified_and_deactivates_target() -> None:
+    class BoundarySource(FakeSource):
+        async def capture_backfill_upper_bound(self) -> str:
+            return "000000000000000000000010"
+
+    class BoundarySaveFails(FakeState):
+        async def save(self, record: RebuildRecord) -> None:
+            if record.backfill_upper_bound is not None:
+                raise RuntimeError("state unavailable")
+            await super().save(record)
+
+    targets: list[str | None] = []
+    with pytest.raises(RebuildError, match="source_boundary_failed"):
+        await SearchRebuilder(
+            state=BoundarySaveFails(),
+            search=FakeSearch(),
+            source=BoundarySource([]),
+            owner="reviewer",
+            capture_boundary=lambda: _boundary(),
+            set_live_target=lambda target: record_target(target, targets),
+        ).run()
+    assert targets[-1] is None
+
+
+async def _boundary() -> object:
+    from event_platform.search.rebuild import RebuildBoundary
+
+    return RebuildBoundary("000000000000000000000010", "10:1")
+
+
+@pytest.mark.asyncio
+async def test_rebuild_legacy_convergence_callback_and_failure_are_classified() -> None:
+    calls: list[object] = []
+
+    async def legacy_wait(value: object) -> object:
+        calls.append(value)
+        if not isinstance(value, str):
+            raise TypeError("legacy callback")
+        from event_platform.search.rebuild import RebuildConvergence
+
+        return RebuildConvergence(
+            backfill_upper_bound=value,
+            source_fence="10:2",
+            projector_change_stream_position="10:2",
+        )
+
+    result = await SearchRebuilder(
+        state=FakeState(),
+        search=FakeSearch(),
+        source=FakeSource([event(1)]),
+        owner="reviewer",
+        capture_boundary=_boundary,
+        wait_for_convergence=legacy_wait,
+    ).run()
+    assert result.phase == RebuildPhase.COMPLETED
+    assert len(calls) == 2
+
+    async def broken_wait(_value: object) -> object:
+        raise RuntimeError("projector unavailable")
+
+    with pytest.raises(RebuildError, match="projection_convergence_timeout"):
+        await SearchRebuilder(
+            state=FakeState(),
+            search=FakeSearch(),
+            source=FakeSource([event(1)]),
+            owner="reviewer",
+            wait_for_convergence=broken_wait,
+        ).run()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_post_swap_uncertain_state_and_live_target_cleanup_failures_are_safe() -> (
+    None
+):
+    class StateFailsTwice(FakeState):
+        async def save(self, record: RebuildRecord) -> None:
+            if record.phase in {RebuildPhase.COMPLETED, RebuildPhase.RECONCILIATION_REQUIRED}:
+                raise RuntimeError("state unavailable")
+            await super().save(record)
+
+    async def target_cleanup(target: str | None) -> None:
+        if target is None:
+            raise RuntimeError("cleanup unavailable")
+
+    with pytest.raises(RuntimeError, match="state unavailable"):
+        await SearchRebuilder(
+            state=StateFailsTwice(),
+            search=FakeSearch(),
+            source=FakeSource([event(1)]),
+            owner="reviewer",
+            set_live_target=target_cleanup,
+        ).run()
+
+
+def test_rebuild_state_models_migrate_legacy_boundary_names() -> None:
+    record = RebuildRecord.model_validate(
+        {
+            "rebuild_id": UUID(int=11),
+            "phase": RebuildPhase.COMPLETED,
+            "started_at": datetime(2026, 1, 1, tzinfo=UTC),
+            "source_collection": "events",
+            "target_index": "events-v000002",
+            "owner": "reviewer",
+            "lease_expires_at": datetime(2026, 1, 1, 1, tzinfo=UTC),
+            "source_high_water": "legacy-bound",
+            "projector_checkpoint": "legacy-position",
+        }
+    )
+    assert record.backfill_upper_bound == "legacy-bound"
+    assert record.change_stream_position == "legacy-position"
+    assert record.projector_change_stream_position == "legacy-position"
+    assert record.source_high_water == "legacy-bound"
+    assert record.projector_checkpoint == "legacy-position"
+
+    convergence = RebuildConvergence.model_validate(
+        {"source_high_water": "legacy-bound", "projector_checkpoint": "legacy-position"}
+    )
+    assert convergence.backfill_upper_bound == "legacy-bound"
+    assert convergence.projector_change_stream_position == "legacy-position"
+    assert convergence.source_high_water == "legacy-bound"
+    assert convergence.projector_checkpoint == "legacy-position"
+
+
+@pytest.mark.asyncio
+async def test_rebuild_source_protocol_compatibility_and_failure_paths() -> None:
+    class LegacySource:
+        async def capture_high_water(self) -> str:
+            return "legacy-bound"
+
+        def scan(self) -> AsyncIterator[CanonicalEvent]:
+            async def items() -> AsyncIterator[CanonicalEvent]:
+                yield event(1)
+
+            return items()
+
+    rebuilder = SearchRebuilder(
+        state=FakeState(), search=FakeSearch(), source=LegacySource(), owner="reviewer"
+    )
+    boundary = await rebuilder._capture_rebuild_boundary()
+    assert boundary == RebuildBoundary("legacy-bound", None)
+    assert [item async for item in rebuilder._scan_source("legacy-bound")]  # type: ignore[arg-type]
+    assert await rebuilder._renew_lease(RebuildRecord.model_construct())
+
+    class FailingSource(LegacySource):
+        async def capture_high_water(self) -> str:
+            raise RuntimeError("source unavailable")
+
+    with pytest.raises(RebuildError, match="source_boundary_failed"):
+        await SearchRebuilder(
+            state=FakeState(), search=FakeSearch(), source=FailingSource(), owner="reviewer"
+        )._capture_rebuild_boundary()
+
+
+@pytest.mark.asyncio
+async def test_rebuild_lease_renewal_and_cleanup_failures_are_recorded_safely() -> None:
+    class LeaseLost(FakeState):
+        async def renew(self, _record: RebuildRecord, _expires: datetime) -> bool:
+            return False
+
+    with pytest.raises(RebuildError, match="rebuild_lease_lost"):
+        await SearchRebuilder(
+            state=LeaseLost(),
+            search=FakeSearch(),
+            source=FakeSource([event(1)]),
+            owner="reviewer",
+            batch_size=1,
+        ).run()
+
+    class NoDelete(FakeSearch):
+        delete_index = None  # type: ignore[assignment]
+
+        async def count(self, _index: str) -> int:
+            return 0
+
+    with pytest.raises(RebuildError, match="rebuild_verification_failed"):
+        await SearchRebuilder(
+            state=FakeState(),
+            search=NoDelete(),
+            source=FakeSource([event(1)]),
+            owner="reviewer",
+        ).run()
+
+    class DeleteFails(FakeSearch):
+        async def count(self, _index: str) -> int:
+            return 0
+
+        async def delete_index(self, _index: str) -> None:
+            raise RuntimeError("cleanup unavailable")
+
+    with pytest.raises(RebuildError, match="rebuild_verification_failed"):
+        await SearchRebuilder(
+            state=FakeState(),
+            search=DeleteFails(),
+            source=FakeSource([event(1)]),
+            owner="reviewer",
+        ).run()
 
 
 def test_cli_requires_confirmation_for_mutating_command() -> None:
