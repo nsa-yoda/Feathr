@@ -7,8 +7,9 @@ seconds, and keeps operations data read-only and secret-safe. The additive
 Visualizer page uses the locally vendored D3 7.9.0 dependency and the
 read-only `/api/operations/visualizer` snapshot. It polls at most once every
 500 ms, never overlaps requests, suspends while the tab is hidden, retains 600
-samples (five minutes), and shows stale/degraded state without discarding the
-last successful charts. Open
+samples (five minutes), defers repaint while the user has text selected inside
+the view, restores the viewport scroll anchor after updates, and shows
+stale/degraded state without discarding the last successful charts. Open
 `http://localhost:3000` from the Compose stack.
 
 Run the frontend checks with:

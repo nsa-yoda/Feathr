@@ -2,6 +2,7 @@ import {
   MAX_HISTORY,
   appendBounded,
   createPoller,
+  selectionInside,
   transformSnapshot,
 } from './visualizer-core.js';
 
@@ -138,14 +139,18 @@ function visualizerView() {
   cleanupVisualizer();
   const app = document.getElementById('app');
   app.innerHTML = `<section class="view visualizer-view"><div class="visualizer-heading"><div><h2>Visualizer</h2><p class="lede">Live operational and analytics signals from the running platform.</p></div><div id="visualizer-live" class="live-indicator warn" role="status">Connecting…</div></div><div id="visualizer-health" class="health-row"></div><div id="visualizer-cards" class="grid"></div><div class="chart-grid">${chartCard('throughput-chart', 'Event throughput', 'Events per second over the bounded five-minute window.')}${chartCard('type-chart', 'Events by type', 'Current realtime distribution from canonical analytics.')}${chartCard('queue-chart', 'Queue health', 'Depth, in-flight messages, and oldest-message age.')}${chartCard('latency-chart', 'Dependency latency buckets', 'Bounded histogram buckets exported by the lightweight metrics registry.')}<article class="card chart-card latency-summary-card"><h3>Latency percentiles</h3><p class="muted chart-description">Calculated from the exported bounded histogram buckets.</p><div id="latency-summary"></div></article></div><div id="visualizer-message" class="notice" role="status">Waiting for the first operational snapshot…</div></section>`;
-  const session = { active: true, staleTimer: null, previous: null, latest: null, history: [], poller: null };
+  const session = { active: true, staleTimer: null, previous: null, latest: null, history: [], poller: null, pendingSnapshot: null, root: app.querySelector('.visualizer-view') };
   activeSession = session;
   window.__feathrVisualizerCleanup = cleanupVisualizer;
   const request = window.__feathrConsole.request;
   const setLive = (text, className) => { const node = document.getElementById('visualizer-live'); if (node) { node.textContent = text; node.className = `live-indicator ${className}`; } };
   const setMessage = (text, error = false) => { const node = document.getElementById('visualizer-message'); if (node) { node.textContent = text; node.className = `notice${error ? ' error' : ''}`; } };
-  const updateAge = () => { if (!session.active || !session.latest) return; const age = Date.now() - session.latest.receivedAt; if (age > STALE_AFTER_MS) setLive(`Stale • last update ${formatAge(session.latest.receivedAt)}`, 'warn'); else setLive(`Live • updated ${formatAge(session.latest.receivedAt)}`, 'good'); };
-  const update = (snapshot) => {
+  const hasSelection = () => selectionInside(window.getSelection?.(), session.root);
+  const updateAge = () => { if (!session.active || !session.latest || hasSelection()) return; const age = Date.now() - session.latest.receivedAt; if (age > STALE_AFTER_MS) setLive(`Stale • last update ${formatAge(session.latest.receivedAt)}`, 'warn'); else setLive(`Live • updated ${formatAge(session.latest.receivedAt)}`, 'good'); };
+  const applySnapshot = (snapshot) => {
+    if (!session.active) return;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
     const sample = transformSnapshot(snapshot, session.previous);
     session.previous = sample;
     session.history = appendBounded(session.history, sample, MAX_HISTORY);
@@ -169,18 +174,43 @@ function visualizerView() {
     document.getElementById('latency-summary').innerHTML = `<table class="latency-table"><thead><tr><th>Dependency</th><th>p50</th><th>p95</th><th>p99</th></tr></thead><tbody>${Object.entries(sample.latencies).map(([name, value]) => `<tr><td>${esc(name)}</td><td>${esc(formatLatency(value.p50))}</td><td>${esc(formatLatency(value.p95))}</td><td>${esc(formatLatency(value.p99))}</td></tr>`).join('')}</tbody></table>`;
     setLive('Live • updated now', 'good');
     setMessage(`Snapshot ${new Date(sample.timestamp).toLocaleTimeString()} • ${snapshot.realtime_cache || 'metrics'} cache`);
+    // Card text can change width/height between samples. Restore the viewport
+    // anchor after the stable view updates so polling never scrolls the page.
+    window.scrollTo(scrollX, scrollY);
+  };
+  const flushPending = () => {
+    if (session.pendingSnapshot && !hasSelection()) {
+      const snapshot = session.pendingSnapshot;
+      session.pendingSnapshot = null;
+      applySnapshot(snapshot);
+    }
+  };
+  const update = (snapshot) => {
+    if (hasSelection()) {
+      // Keep the latest data without touching the selected DOM range. The
+      // selectionchange handler applies one coalesced repaint after release.
+      session.pendingSnapshot = snapshot;
+      return;
+    }
+    applySnapshot(snapshot);
   };
   session.poller = createPoller({
     interval: POLL_INTERVAL_MS,
     fetchSnapshot: (signal) => request('/operations/visualizer?window_minutes=5', { signal }).then(({ body }) => body),
     onData: update,
-    onError: (error) => { setLive(`Stale • last update ${formatAge(session.latest?.receivedAt)}`, 'warn'); setMessage('Operational snapshot unavailable; retaining the last successful charts.', true); },
+    onError: (error) => {
+      if (hasSelection()) return;
+      setLive(`Stale • last update ${formatAge(session.latest?.receivedAt)}`, 'warn');
+      setMessage('Operational snapshot unavailable; retaining the last successful charts.', true);
+    },
     isHidden: () => document.hidden,
   });
   const onVisibility = () => { if (document.hidden) session.poller.pause(); else session.poller.resume(); };
   document.addEventListener('visibilitychange', onVisibility);
   session.removeVisibility = () => document.removeEventListener('visibilitychange', onVisibility);
-  session.resize = new ResizeObserver(() => { if (!session.latest) return; updateLineChart('#throughput-chart', session.history, ['received', 'persisted', 'projected', 'retries'], (d, key) => d.rates[key]); updateTypeChart('#type-chart', session.latest.types); updateLineChart('#queue-chart', session.history, ['depth', 'oldestAge', 'inFlight'], (d, key) => d.queue[key]); updateLatencyChart('#latency-chart', session.latest.latencies); });
+  document.addEventListener('selectionchange', flushPending);
+  session.removeSelection = () => document.removeEventListener('selectionchange', flushPending);
+  session.resize = new ResizeObserver(() => { if (!session.latest || hasSelection()) return; updateLineChart('#throughput-chart', session.history, ['received', 'persisted', 'projected', 'retries'], (d, key) => d.rates[key]); updateTypeChart('#type-chart', session.latest.types); updateLineChart('#queue-chart', session.history, ['depth', 'oldestAge', 'inFlight'], (d, key) => d.queue[key]); updateLatencyChart('#latency-chart', session.latest.latencies); });
   document.querySelectorAll('.viz-chart').forEach((node) => session.resize.observe(node.parentElement));
   session.staleTimer = window.setInterval(updateAge, 1000);
   session.poller.start();
@@ -193,10 +223,11 @@ function cleanupVisualizer() {
   activeSession.poller?.stop();
   activeSession.removeVisibility?.();
   activeSession.resize?.disconnect();
+  activeSession.removeSelection?.();
   activeSession = null;
   window.__feathrVisualizerCleanup = null;
 }
 
 window.__feathrVisualizerView = visualizerView;
 window.__feathrVisualizerCleanup = cleanupVisualizer;
-window.__feathrVisualizerTesting = { transformSnapshot, appendBounded, MAX_HISTORY, POLL_INTERVAL_MS };
+window.__feathrVisualizerTesting = { transformSnapshot, appendBounded, selectionInside, MAX_HISTORY, POLL_INTERVAL_MS };

@@ -6,6 +6,7 @@ import {
   appendBounded,
   createPoller,
   parseMetrics,
+  selectionInside,
   transformSnapshot,
 } from '../public/visualizer-core.js';
 
@@ -46,6 +47,15 @@ test('rolling history is bounded to the visible retention window', () => {
   const bounded = appendBounded(appendBounded(appendBounded(history, 1, 3), 2, 3), 3, 3);
   assert.equal(MAX_HISTORY, 600);
   assert.deepEqual(bounded, [1, 2, 3]);
+});
+
+test('selection guard defers repaint while a non-collapsed range is inside the view', () => {
+  const selected = { id: 'selected' };
+  const root = { contains: (node) => node === selected };
+  const range = { commonAncestorContainer: selected };
+  assert.equal(selectionInside({ isCollapsed: false, rangeCount: 1, getRangeAt: () => range }, root), true);
+  assert.equal(selectionInside({ isCollapsed: true, rangeCount: 1, getRangeAt: () => range }, root), false);
+  assert.equal(selectionInside({ isCollapsed: false, rangeCount: 0, getRangeAt: () => range }, root), false);
 });
 
 test('poller never overlaps requests and stops scheduling after cancellation', async () => {

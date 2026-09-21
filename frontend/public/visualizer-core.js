@@ -42,6 +42,18 @@ export function appendBounded(history, sample, max = MAX_HISTORY) {
   return next.length > max ? next.slice(next.length - max) : next;
 }
 
+/**
+ * Return true when the user has a non-collapsed selection inside the view.
+ * Replacing selected DOM nodes collapses the browser range, so callers should
+ * defer repainting until the selection is released.
+ */
+export function selectionInside(selection, root) {
+  if (!selection || selection.isCollapsed || !selection.rangeCount || !root) return false;
+  const range = selection.getRangeAt(0);
+  const node = range.commonAncestorContainer || selection.anchorNode;
+  return Boolean(node && (node === root || root.contains?.(node)));
+}
+
 export function createPoller({
   interval = 500,
   fetchSnapshot,
