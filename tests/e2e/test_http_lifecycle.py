@@ -2,6 +2,7 @@
 
 import os
 import time
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import httpx
@@ -32,7 +33,7 @@ def test_ingestion_idempotency_projection_and_analytics_lifecycle() -> None:
     suffix = uuid4().hex
     payload = {
         "event_type": "e2e.event",
-        "timestamp": "2026-01-01T00:00:00Z",
+        "timestamp": datetime.now(UTC).isoformat(),
         "user_id": f"e2e-{suffix}",
         "source_url": "https://example.invalid/e2e",
         "metadata": {"suite": "e2e", "marker": suffix},

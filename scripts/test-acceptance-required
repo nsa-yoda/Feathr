@@ -2,7 +2,7 @@
 set -euo pipefail
 report="${TMPDIR:-/tmp}/feathr-acceptance.xml"
 uv run --locked pytest -q tests/integration/test_rebuild_live.py -m 'integration and acceptance' --junitxml="$report"
-python - "$report" <<'PY'
+uv run --locked python - "$report" <<'PY'
 import sys
 import xml.etree.ElementTree as ET
 root = ET.parse(sys.argv[1]).getroot()
