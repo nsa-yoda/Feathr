@@ -12,15 +12,15 @@ jobs:
   static:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
-          version: "0.8.17"
+          version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: uv.lock
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: uv sync --locked
       - run: make format-check
       - run: make lint
@@ -30,15 +30,15 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
-          version: "0.8.17"
+          version: "0.12.17"
           enable-cache: true
           cache-dependency-glob: uv.lock
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: uv sync --locked
       - run: make test-unit
       - run: make test-failure
@@ -50,7 +50,7 @@ jobs:
       - run: MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' ELASTICSEARCH_URL='http://127.0.0.1:9200' REDIS_URL='redis://127.0.0.1:6379/0' make test-integration-required
       - if: always()
         run: docker compose --env-file .env.example down -v
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
           name: coverage
@@ -60,7 +60,7 @@ jobs:
   runtime:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: make compose-up
       - run: make smoke
       - if: always()

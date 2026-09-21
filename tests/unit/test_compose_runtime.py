@@ -59,6 +59,7 @@ def test_compose_uses_replica_set_and_single_uvicorn_worker() -> None:
     assert "--replSet" in compose
     assert "replicaSet=rs0" in compose
     assert '"--workers", "1"' in dockerfile
+    assert "pip install --no-cache-dir uv==0.12.17" in dockerfile
 
 
 def test_compose_runtime_defaults_and_resources_are_explicit() -> None:
@@ -84,9 +85,9 @@ def test_compose_runtime_defaults_and_resources_are_explicit() -> None:
     assert "EVENT_PLATFORM_REDIS_URL=redis://redis:6379/0" in env
     assert "REDIS_PASSWORD=" in env
     assert "docker compose down -v" in (ROOT / "README.md").read_text()
-    assert "mongo:7.0.14" in compose
-    assert "elasticsearch/elasticsearch:8.17.3" in compose
-    assert "redis:7.4.1-alpine" in compose
+    assert "mongo:8.3.11" in compose
+    assert "elasticsearch/elasticsearch:9.5.4" in compose
+    assert "redis:8.10.1-alpine" in compose
 
 
 def test_final_images_are_non_root_and_ui_proxies_api() -> None:

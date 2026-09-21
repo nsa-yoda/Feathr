@@ -8,7 +8,7 @@ import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Literal, Protocol, cast
+from typing import Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -78,7 +78,7 @@ class RedisCache(CachePort):
         started_at = time.perf_counter()
         outcome = "failure"
         try:
-            value = cast(str | bytes | None, await self._client.get(self._key(key)))
+            value = await self._client.get(self._key(key))
             outcome = "success"
             return value
         except (RedisError, OSError, TimeoutError):

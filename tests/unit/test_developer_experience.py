@@ -51,8 +51,11 @@ def test_makefile_exposes_locked_quality_and_lifecycle_targets() -> None:
 
 def test_ci_runs_independent_locked_static_tests_and_artifacts() -> None:
     text = WORKFLOW.read_text()
-    assert 'python-version: "3.12"' in text
-    assert 'version: "0.8.17"' in text
+    assert "actions/checkout@v7" in text
+    assert "actions/setup-python@v7" in text
+    assert "actions/upload-artifact@v7.0.1" in text
+    assert 'python-version: "3.14"' in text
+    assert 'version: "0.12.17"' in text
     assert "uv sync --locked" in text
     for command in (
         "make format-check",
@@ -65,7 +68,7 @@ def test_ci_runs_independent_locked_static_tests_and_artifacts() -> None:
     ):
         assert command in text
     assert "cache-dependency-glob: uv.lock" in text
-    assert "actions/upload-artifact@v4" in text
+    assert "actions/upload-artifact@v7.0.1" in text
     assert "coverage/coverage.xml" in text
     assert "pull_request:" in text and "branches: [main]" in text
     assert "needs: static" not in text and "if: always()" in text
@@ -83,3 +86,4 @@ def test_readme_documents_reproducible_workflow_and_rebuild_cli() -> None:
     assert "make compose-config" in text and "make compose-down" in text
     assert "make smoke" in text and "make postman" in text
     assert "Python 3.12" in text and "uv.lock" in text
+    assert "CI and the application image use Python 3.14.7" in text

@@ -64,8 +64,10 @@ requires the Compose MongoDB replica set and Elasticsearch services; use
 `uv run --locked python -m event_platform.cli search rebuild-status` and
 `uv run --locked python -m event_platform.cli search rebuild --confirm`.
 
-CI uses Python 3.12, a pinned uv release, and `uv.lock` with `--locked`
-resolution.
+CI and the application image use Python 3.14.7 and uv 0.12.17. The Compose
+baseline pins MongoDB 8.3.11, Elasticsearch 9.5.4, Redis 8.10.1, and the
+unprivileged Nginx frontend at 1.31.6; `uv.lock` is always consumed with
+`--locked` resolution.
 
 The unit suite is the isolated semantic suite for settings, lifecycle state machines,
 queue/worker acknowledgement boundaries, idempotency/projector races, query/search/

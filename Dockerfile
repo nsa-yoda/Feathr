@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14.7-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -10,7 +10,7 @@ RUN groupadd --system --gid 10001 app \
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
-RUN pip install --no-cache-dir uv \
+RUN pip install --no-cache-dir uv==0.12.17 \
     && uv sync --locked --no-dev
 
 COPY docs ./docs

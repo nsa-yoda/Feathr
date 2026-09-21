@@ -10,7 +10,7 @@
 
 ## Decisions
 
-1. Use Mongo 7.0, Elasticsearch 8.17.3, and Redis 7.4 Alpine image tags. These versions are explicit and compatible with the pinned Python clients.
+1. Use explicit stable image tags for MongoDB, Elasticsearch, Redis, Python, and the unprivileged Nginx frontend. The current Compose pins are MongoDB 8.3.11, Elasticsearch 9.5.4, Redis 8.10.1 Alpine, Python 3.14.7 slim, and Nginx 1.31.6 Alpine 3.24; the Python client floors in `pyproject.toml` match those service generations.
 2. Use a dedicated `feathr` bridge network and named volumes for Mongo, Elasticsearch, and Redis.
 3. Use health checks for all long-running services. `mongo-init` waits for Mongo ping, calls `rs.initiate` only when needed, and verifies primary state before exiting successfully.
 4. Use `service_completed_successfully` for app dependency on `mongo-init`, and `service_healthy` for Elasticsearch/Redis. No fixed sleeps are used.
