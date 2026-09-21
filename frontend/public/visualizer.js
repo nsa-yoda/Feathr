@@ -231,3 +231,4 @@ function cleanupVisualizer() {
 window.__feathrVisualizerView = visualizerView;
 window.__feathrVisualizerCleanup = cleanupVisualizer;
 window.__feathrVisualizerTesting = { transformSnapshot, appendBounded, selectionInside, MAX_HISTORY, POLL_INTERVAL_MS };
+if (window.__feathrConsole?.getView?.() === 'visualizer') window.__feathrConsole.render();

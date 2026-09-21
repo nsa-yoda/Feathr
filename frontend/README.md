@@ -10,7 +10,11 @@ read-only `/api/operations/visualizer` snapshot. It polls at most once every
 samples (five minutes), defers repaint while the user has text selected inside
 the view, restores the viewport scroll anchor after updates, and shows
 stale/degraded state without discarding the last successful charts. Open
-`http://localhost:3000` from the Compose stack.
+`http://localhost:3000` from the Compose stack. The static app supports
+shareable routes with browser back/forward navigation: `/dashboard`,
+`/generator`, `/events`, `/search`, `/analytics`, `/realtime`, `/visualizer`,
+and `/operations`. The root path maps to the dashboard, and direct links are
+served by the nginx SPA fallback.
 
 Run the frontend checks with:
 
