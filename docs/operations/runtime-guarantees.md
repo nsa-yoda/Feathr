@@ -14,6 +14,9 @@ queue; an SQS/Kafka-equivalent is the production migration path.
 
 Elasticsearch projection and Redis cache/rate-limit state are derived. A projector
 owns a Mongo lease with a fencing generation and must renew it before checkpointing.
+Lease release keeps an expired generation tombstone, and startup raises a newly
+created legacy lease above any surviving checkpoint generation, so a restart cannot
+reuse a fencing number and strand the projector.
 If Elasticsearch exits, the lifecycle marks search degraded while Mongo ingestion and
 canonical readiness continue. Redis outages use the bounded local leaky bucket and
 cache bypass behavior.

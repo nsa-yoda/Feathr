@@ -48,7 +48,7 @@ from event_platform.search.bootstrap import ensure_search_alias
 from event_platform.search.elasticsearch import ElasticsearchProjectionWriter
 from event_platform.search.elasticsearch import create_client as create_elasticsearch_client
 from event_platform.search.elasticsearch_rebuild import ElasticsearchRebuildAdapter
-from event_platform.search.projection import SearchProjector
+from event_platform.search.projection import ProjectionError, SearchProjector
 from event_platform.search.rebuild import (
     RebuildBoundary,
     RebuildConvergence,
@@ -454,8 +454,20 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 )
 
                 async def run_search_projector(stop_event: asyncio.Event) -> None:
+                    # The lease generation must be newer than any checkpoint
+                    # left by a previous owner.  This also repairs state from
+                    # deployments that deleted lease records on shutdown.
+                    checkpoint_generation = 0
+                    try:
+                        previous_checkpoint = await checkpoint.load("events-search")
+                    except ProjectionError:
+                        previous_checkpoint = None
+                    if previous_checkpoint is not None:
+                        checkpoint_generation = previous_checkpoint.generation
                     lease = await lease_store.acquire(
-                        projector="events-search", owner=projector_owner
+                        projector="events-search",
+                        owner=projector_owner,
+                        minimum_generation=checkpoint_generation,
                     )
                     if lease is None:
                         raise ProjectionLeaseError("projector_lease_unavailable")

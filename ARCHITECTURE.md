@@ -244,6 +244,10 @@ renewal and checkpoint writes are owner/generation constrained, so a stale repli
 cannot regress shared progress after takeover. Search writes use bounded Elasticsearch
 bulk operations where the adapter supports them, and checkpoints advance through the
 acknowledged batch in source order. Partial bulk failures retry idempotently by event ID.
+Release expires the lease without deleting its generation tombstone. On startup, a
+new lease is also advanced above a surviving checkpoint from older deployments that
+did delete lease records, preventing a restart from stranding the projector on an
+equal-generation owner mismatch.
 
 Projector replicas acquire the Mongo-backed `search_projection_leases` lease before
 consuming. The lease carries an owner and monotonically increasing fencing generation;

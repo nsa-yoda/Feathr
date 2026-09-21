@@ -269,6 +269,11 @@ class _LeaseCollection:
         self.error: Exception | None = None
         self.document: dict[str, object] | None = None
 
+    async def find_one(self, _query: Mapping[str, object]) -> Mapping[str, object] | None:
+        if self.error:
+            raise self.error
+        return self.document
+
     async def find_one_and_update(self, *_args: object, **_kwargs: object) -> Mapping[str, object]:
         if self.error:
             raise self.error
