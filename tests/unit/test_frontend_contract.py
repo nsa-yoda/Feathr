@@ -85,7 +85,7 @@ def test_console_exposes_shareable_routes_and_history_navigation() -> None:
     text = INDEX.read_text()
     assert "const routePath = (view) => `/${view}`" in text
     assert "const viewFromPath" in text
-    assert "href=\"${routePath(v)}\"" in text
+    assert 'href="${routePath(v)}"' in text
     assert "pushState" in text and "popstate" in text
     assert "getView:()=>state.view" in text
 
@@ -93,7 +93,10 @@ def test_console_exposes_shareable_routes_and_history_navigation() -> None:
 def test_visualizer_legends_apply_series_colors_over_css_defaults() -> None:
     text = VISUALIZER.read_text()
     assert text.count(".style('fill', (name) => color(name))") == 2
-    assert ".viz-chart .legend text { fill:var(--muted)" in (ROOT / "frontend/public/visualizer.css").read_text()
+    assert (
+        ".viz-chart .legend text { fill:var(--muted)"
+        in (ROOT / "frontend/public/visualizer.css").read_text()
+    )
 
 
 def test_browser_free_javascript_harness_exercises_client_helpers(tmp_path) -> None:
