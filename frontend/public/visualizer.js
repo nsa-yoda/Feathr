@@ -84,7 +84,7 @@ function updateLineChart(selector, history, series, accessor) {
     (exit) => exit.remove(),
   );
   const legend = svg.selectAll('g.legend').data([null]).join('g').attr('class', 'legend').attr('transform', `translate(${margin.left},8)`);
-  legend.selectAll('text').data(series, (name) => name).join('text').attr('x', (_name, index) => index * 100).attr('fill', (name) => color(name)).text((name) => name);
+  legend.selectAll('text').data(series, (name) => name).join('text').attr('x', (_name, index) => index * 100).style('fill', (name) => color(name)).text((name) => name);
 }
 
 function color(name) {
@@ -132,7 +132,7 @@ function updateLatencyChart(selector, latency) {
     (update) => update.select('rect').interrupt().transition().duration(reducedMotion() ? 0 : 180).attr('x', (d) => x(d.bucket) + group(d.name)).attr('width', group.bandwidth()).attr('y', (d) => y(d.count)).attr('height', (d) => height - y(d.count)),
     (exit) => exit.remove(),
   );
-  svg.selectAll('g.legend').data([null]).join('g').attr('class', 'legend').attr('transform', `translate(${margin.left},8)`).selectAll('text').data(names).join('text').attr('x', (_name, index) => index * 84).attr('fill', (name) => color(name)).text((name) => name);
+  svg.selectAll('g.legend').data([null]).join('g').attr('class', 'legend').attr('transform', `translate(${margin.left},8)`).selectAll('text').data(names).join('text').attr('x', (_name, index) => index * 84).style('fill', (name) => color(name)).text((name) => name);
 }
 
 function visualizerView() {

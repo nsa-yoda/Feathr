@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[2]
 INDEX = ROOT / "frontend/public/index.html"
 NGINX = ROOT / "frontend/nginx.conf"
+VISUALIZER = ROOT / "frontend/public/visualizer.js"
 
 
 def test_console_has_required_views_and_accessible_navigation() -> None:
@@ -87,6 +88,12 @@ def test_console_exposes_shareable_routes_and_history_navigation() -> None:
     assert "href=\"${routePath(v)}\"" in text
     assert "pushState" in text and "popstate" in text
     assert "getView:()=>state.view" in text
+
+
+def test_visualizer_legends_apply_series_colors_over_css_defaults() -> None:
+    text = VISUALIZER.read_text()
+    assert text.count(".style('fill', (name) => color(name))") == 2
+    assert ".viz-chart .legend text { fill:var(--muted)" in (ROOT / "frontend/public/visualizer.css").read_text()
 
 
 def test_browser_free_javascript_harness_exercises_client_helpers(tmp_path) -> None:
