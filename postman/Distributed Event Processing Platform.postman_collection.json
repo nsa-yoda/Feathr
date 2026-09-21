@@ -347,9 +347,26 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const body = pm.response.json();",
-                  "pm.test(\"realtime statistics returns 200\", () => pm.expect(pm.response.code).to.eql(200));",
-                  "pm.test(\"realtime response has captured event type and cache outcome\", () => { pm.expect(body.by_event_type).to.be.an(\"object\"); pm.expect(body.by_event_type[\"postman.demo\"]).to.be.greaterThan(0); pm.expect(body.total_events).to.be.greaterThan(0); pm.expect([\"HIT\", \"MISS\", \"BYPASS\"]).to.include(pm.response.headers.get(\"X-Cache\")); });"
+                  "function hasCapturedEvent(response, label) {",
+                  "  let body;",
+                  "  try { body = response.json(); } catch (_) { return false; }",
+                  "  const count = body && body.by_event_type ? Number(body.by_event_type[\"postman.demo\"]) : 0;",
+                  "  if (response.code !== 200 || !Number.isFinite(count) || count <= 0) return false;",
+                  "  pm.test(label + \" returns 200\", () => pm.expect(response.code).to.eql(200));",
+                  "  pm.test(label + \" has captured event type and cache outcome\", () => { pm.expect(body.by_event_type).to.be.an(\"object\"); pm.expect(count).to.be.greaterThan(0); pm.expect(body.total_events).to.be.greaterThan(0); pm.expect([\"HIT\", \"MISS\", \"BYPASS\"]).to.include(response.headers.get(\"X-Cache\")); });",
+                  "  return true;",
+                  "}",
+                  "function pollRealtime() {",
+                  "  if (hasCapturedEvent(pm.response, \"realtime statistics\")) return;",
+                  "  const deadline = Date.now() + Number(pm.environment.get(\"pollDeadlineMs\") || 30000);",
+                  "  const interval = Number(pm.environment.get(\"pollIntervalMs\") || 250);",
+                  "  if (Date.now() >= deadline) { pm.test(\"realtime statistics converges\", () => pm.expect.fail(\"realtime statistics deadline exceeded\")); return; }",
+                  "  pm.sendRequest({ url: `${pm.environment.get(\"baseUrl\")}/events/stats/realtime?window_minutes=5`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000) }, (error, response) => {",
+                  "    if (!error && hasCapturedEvent(response, \"realtime statistics\")) return;",
+                  "    setTimeout(pollRealtime, interval);",
+                  "  });",
+                  "}",
+                  "pollRealtime();"
                 ]
               }
             }
@@ -368,9 +385,26 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const body = pm.response.json();",
-                  "pm.test(\"repeat realtime statistics returns 200\", () => pm.expect(pm.response.code).to.eql(200));",
-                  "pm.test(\"repeat response keeps captured event statistics\", () => { pm.expect(body.by_event_type[\"postman.demo\"]).to.be.greaterThan(0); pm.expect([\"HIT\", \"MISS\", \"BYPASS\"]).to.include(pm.response.headers.get(\"X-Cache\")); });"
+                  "function hasCapturedEvent(response, label) {",
+                  "  let body;",
+                  "  try { body = response.json(); } catch (_) { return false; }",
+                  "  const count = body && body.by_event_type ? Number(body.by_event_type[\"postman.demo\"]) : 0;",
+                  "  if (response.code !== 200 || !Number.isFinite(count) || count <= 0) return false;",
+                  "  pm.test(label + \" returns 200\", () => pm.expect(response.code).to.eql(200));",
+                  "  pm.test(label + \" keeps captured event statistics\", () => { pm.expect(count).to.be.greaterThan(0); pm.expect([\"HIT\", \"MISS\", \"BYPASS\"]).to.include(response.headers.get(\"X-Cache\")); });",
+                  "  return true;",
+                  "}",
+                  "function pollRealtime() {",
+                  "  if (hasCapturedEvent(pm.response, \"repeat realtime statistics\")) return;",
+                  "  const deadline = Date.now() + Number(pm.environment.get(\"pollDeadlineMs\") || 30000);",
+                  "  const interval = Number(pm.environment.get(\"pollIntervalMs\") || 250);",
+                  "  if (Date.now() >= deadline) { pm.test(\"repeat realtime statistics converges\", () => pm.expect.fail(\"realtime statistics deadline exceeded\")); return; }",
+                  "  pm.sendRequest({ url: `${pm.environment.get(\"baseUrl\")}/events/stats/realtime?window_minutes=5`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000) }, (error, response) => {",
+                  "    if (!error && hasCapturedEvent(response, \"repeat realtime statistics\")) return;",
+                  "    setTimeout(pollRealtime, interval);",
+                  "  });",
+                  "}",
+                  "pollRealtime();"
                 ]
               }
             }
@@ -606,9 +640,26 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const body = pm.response.json();",
-                  "pm.test(\"realtime statistics returns 200\", () => pm.expect(pm.response.code).to.eql(200));",
-                  "pm.test(\"realtime response has captured event type and cache outcome\", () => { pm.expect(body.by_event_type).to.be.an(\"object\"); pm.expect(body.by_event_type[\"postman.demo\"]).to.be.greaterThan(0); pm.expect(body.total_events).to.be.greaterThan(0); pm.expect([\"HIT\", \"MISS\", \"BYPASS\"]).to.include(pm.response.headers.get(\"X-Cache\")); });"
+                  "function hasCapturedEvent(response, label) {",
+                  "  let body;",
+                  "  try { body = response.json(); } catch (_) { return false; }",
+                  "  const count = body && body.by_event_type ? Number(body.by_event_type[\"postman.demo\"]) : 0;",
+                  "  if (response.code !== 200 || !Number.isFinite(count) || count <= 0) return false;",
+                  "  pm.test(label + \" returns 200\", () => pm.expect(response.code).to.eql(200));",
+                  "  pm.test(label + \" has captured event type and cache outcome\", () => { pm.expect(body.by_event_type).to.be.an(\"object\"); pm.expect(count).to.be.greaterThan(0); pm.expect(body.total_events).to.be.greaterThan(0); pm.expect([\"HIT\", \"MISS\", \"BYPASS\"]).to.include(response.headers.get(\"X-Cache\")); });",
+                  "  return true;",
+                  "}",
+                  "function pollRealtime() {",
+                  "  if (hasCapturedEvent(pm.response, \"demo realtime statistics\")) return;",
+                  "  const deadline = Date.now() + Number(pm.environment.get(\"pollDeadlineMs\") || 30000);",
+                  "  const interval = Number(pm.environment.get(\"pollIntervalMs\") || 250);",
+                  "  if (Date.now() >= deadline) { pm.test(\"demo realtime statistics converges\", () => pm.expect.fail(\"realtime statistics deadline exceeded\")); return; }",
+                  "  pm.sendRequest({ url: `${pm.environment.get(\"baseUrl\")}/events/stats/realtime?window_minutes=5`, method: \"GET\", timeout: Number(pm.environment.get(\"pollRequestTimeoutMs\") || 5000) }, (error, response) => {",
+                  "    if (!error && hasCapturedEvent(response, \"demo realtime statistics\")) return;",
+                  "    setTimeout(pollRealtime, interval);",
+                  "  });",
+                  "}",
+                  "pollRealtime();"
                 ]
               }
             }

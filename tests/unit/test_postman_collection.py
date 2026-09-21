@@ -111,6 +111,11 @@ def test_collection_covers_required_statuses_and_safe_problem_contract() -> None
     assert "pm.response.code).to.eql(422)" in targeted["Invalid event body"]
     assert "body.request_id" in targeted["Search dependency-visible response"]
     assert 'body.by_event_type["postman.demo"]' in targeted["Realtime statistics"]
+    assert "setTimeout(pollRealtime, interval)" in targeted["Realtime statistics"]
+    assert "pollDeadlineMs" in targeted["Realtime statistics"]
+    assert "setTimeout(pollRealtime, interval)" in targeted["Realtime statistics repeat"]
+    assert "pollDeadlineMs" in targeted["Realtime statistics repeat"]
+    assert "setTimeout(pollRealtime, interval)" in targeted["Demo realtime statistics"]
     assert "body.components.persistence_worker" in targeted["Readiness contract"]
     for endpoint in (
         "/events",
