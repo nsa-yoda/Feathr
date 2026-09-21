@@ -35,6 +35,13 @@ jobs:
       - run: make coverage
       - run: make compose-config
       - run: docker compose --env-file .env.example build
+      - run: make smoke
+        env:
+          SMOKE_DEADLINE_SECONDS: "180"
+      - run: MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' ELASTICSEARCH_URL='http://127.0.0.1:9200' REDIS_URL='redis://127.0.0.1:6379/0' make test-integration-required
+      - run: MONGO_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' ELASTICSEARCH_URL='http://127.0.0.1:9200' REDIS_URL='redis://127.0.0.1:6379/0' make test-acceptance-required
+      - run: E2E_BASE_URL='http://127.0.0.1:8000' make test-e2e-required
+      - run: PERF_BASE_URL='http://127.0.0.1:8000' PERF_REQUESTS=10 make performance
       - run: make release-verify
       - run: |
           {
@@ -43,10 +50,17 @@ jobs:
             echo "- commit: ${GITHUB_SHA}"
             echo "- artifacts: source archive, metadata, SHA-256 checksums, coverage XML"
           } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        run: docker compose --env-file .env.example logs --no-color > compose.log
       - uses: actions/upload-artifact@v7.0.1
+        if: always()
         with:
           name: release-${{ github.ref_name }}
           path: |
             artifacts/release
             coverage/coverage.xml
+            artifacts/performance.json
+            compose.log
           retention-days: 30
+      - if: always()
+        run: docker compose --env-file .env.example down -v --remove-orphans

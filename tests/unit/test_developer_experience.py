@@ -30,8 +30,8 @@ def test_makefile_exposes_locked_quality_and_lifecycle_targets() -> None:
     ):
         assert f"{target}:" in text
     assert (
-        "all: format-check lint typecheck dependency-check test-unit test-functional test-integration test-failure"
-        in text
+        "all: format-check lint typecheck dependency-check test-unit test-functional "
+        "test-integration test-failure" in text
     )
     assert "uv run --locked" in text
     assert "compose-reset:" in text and "down -v" in text
