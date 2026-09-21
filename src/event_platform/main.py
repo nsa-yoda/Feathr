@@ -4,11 +4,14 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
 from elasticsearch import AsyncElasticsearch
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pymongo import AsyncMongoClient
 from redis.asyncio import Redis
 
@@ -80,6 +83,29 @@ def _change_stream_position_at_or_after(current: str, boundary: str) -> bool:
 
 
 logger = logging.getLogger("event_platform.lifecycle")
+_DOCS_ASSETS = Path(__file__).parent / "static"
+_SWAGGER_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Distributed Event Processing Platform - Swagger UI</title>
+  <link rel="stylesheet" href="/docs-assets/swagger-ui.css">
+  <link rel="icon" type="image/svg+xml" href="/docs-assets/favicon.svg">
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="/docs-assets/swagger-ui-bundle.js"></script>
+  <script src="/docs-assets/swagger-ui-standalone-preset.js"></script>
+  <script src="/docs-assets/swagger-initializer.js"></script>
+</body>
+</html>
+"""
+_SWAGGER_OAUTH2_REDIRECT_HTML = """<!doctype html>
+<html lang="en-US">
+<head><title>Swagger UI: OAuth2 Redirect</title></head>
+<body><script src="/docs-assets/oauth2-redirect.js"></script></body>
+</html>
+"""
 
 
 def create_app(settings: ServiceSettings | None = None) -> FastAPI:
@@ -657,7 +683,23 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         title="Distributed Event Processing Platform",
         debug=False,
         lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
     )
+    app.mount("/docs-assets", StaticFiles(directory=_DOCS_ASSETS), name="docs-assets")
+
+    @app.get("/docs", include_in_schema=False)
+    async def swagger_ui() -> HTMLResponse:
+        """Serve Swagger UI entirely from package-owned static assets."""
+
+        return HTMLResponse(_SWAGGER_HTML)
+
+    @app.get("/docs/oauth2-redirect", include_in_schema=False)
+    async def swagger_ui_oauth2_redirect() -> HTMLResponse:
+        """Keep the Swagger OAuth redirect local and CSP-compatible."""
+
+        return HTMLResponse(_SWAGGER_OAUTH2_REDIRECT_HTML)
+
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(ConfiguredCORSMiddleware)

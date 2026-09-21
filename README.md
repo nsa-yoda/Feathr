@@ -103,7 +103,7 @@ reviewer and operator workflows.
 
 ## API
 
-All public API errors use the repository's `application/problem+json` contract. The exhaustive schemas and interactive examples are available at `/docs`.
+All public API errors use the repository's `application/problem+json` contract. The exhaustive schemas and interactive examples are available at `/docs`. Swagger UI, its CSS, OAuth redirect, and initializer are vendored in the API package and served from `/docs-assets`; the API documentation does not require a CDN or external validator.
 
 | Method | Path | Purpose | Backing system / consistency |
 |---|---|---|---|

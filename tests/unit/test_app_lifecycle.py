@@ -31,6 +31,44 @@ def test_base_app_serves_liveness_and_api_description() -> None:
 
 
 @pytest.mark.unit
+def test_swagger_ui_uses_only_local_assets() -> None:
+    with TestClient(create_app()) as client:
+        docs = client.get("/docs")
+        redirect = client.get("/docs/oauth2-redirect")
+        assets = {
+            path: client.get(path)
+            for path in (
+                "/docs-assets/swagger-ui.css",
+                "/docs-assets/swagger-ui-bundle.js",
+                "/docs-assets/swagger-ui-standalone-preset.js",
+                "/docs-assets/swagger-initializer.js",
+                "/docs-assets/oauth2-redirect.js",
+                "/docs-assets/favicon.svg",
+            )
+        }
+
+    assert docs.status_code == 200
+    assert "cdn.jsdelivr.net" not in docs.text
+    assert "https://" not in docs.text
+    assert "/docs-assets/swagger-ui.css" in docs.text
+    assert "/docs-assets/swagger-ui-bundle.js" in docs.text
+    assert "/docs-assets/swagger-ui-standalone-preset.js" in docs.text
+    assert "/docs-assets/swagger-initializer.js" in docs.text
+    assert redirect.status_code == 200
+    assert "cdn.jsdelivr.net" not in redirect.text
+    assert "/docs-assets/oauth2-redirect.js" in redirect.text
+    assert all(response.status_code == 200 for response in assets.values())
+    assert "https://" not in assets["/docs-assets/swagger-initializer.js"].text
+    assert "validatorUrl: null" in assets["/docs-assets/swagger-initializer.js"].text
+    assert assets["/docs-assets/swagger-ui.css"].headers["content-type"].startswith("text/css")
+    assert (
+        assets["/docs-assets/swagger-ui-bundle.js"]
+        .headers["content-type"]
+        .startswith("text/javascript")
+    )
+
+
+@pytest.mark.unit
 def test_base_app_lifespan_exits_cleanly() -> None:
     app = create_app()
     with TestClient(app) as client:
