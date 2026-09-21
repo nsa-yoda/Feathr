@@ -159,7 +159,7 @@ function visualizerView() {
     document.getElementById('visualizer-cards').innerHTML = [
       card('Queue depth', formatNumber(q.depth, 0), `${formatNumber(q.inFlight, 0)} in flight`),
       card('Oldest message', formatLatency(q.oldestAge), 'queue age'),
-      card('Projection lag', formatLatency(q.projectionLag), 'Elasticsearch checkpoint'),
+      card('Projection processing delay', formatLatency(q.projectionLag), 'last successful event from ingestion to Elasticsearch checkpoint'),
       card('Throughput', `${formatNumber(sample.rates.received, 1)}/s`, 'accepted HTTP events'),
       card('Retries / DLQ', `${formatNumber(sample.counters.retries, 0)} / ${formatNumber(sample.counters.dlq, 0)}`, 'cumulative worker counters'),
       card('Cache hit rate', `${formatNumber(sample.cache.hitRate * 100, 1)}%`, `${sample.cache.hits} hits / ${sample.cache.misses} misses`),

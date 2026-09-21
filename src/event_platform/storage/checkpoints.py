@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from math import isfinite
 from typing import cast
 
 from bson import BSON
@@ -75,6 +76,14 @@ class MongoProjectionCheckpointStore:
                 not isinstance(change_stream_position, str) or len(change_stream_position) > 64
             ):
                 raise ValueError
+            projection_latency = document.get("projection_latency_seconds")
+            if projection_latency is not None and (
+                not isinstance(projection_latency, (int, float))
+                or isinstance(projection_latency, bool)
+                or not isfinite(float(projection_latency))
+                or projection_latency < 0
+            ):
+                raise ValueError
             return ProjectionCheckpoint(
                 projector=projector,
                 resume_token=dict(token),
@@ -86,6 +95,9 @@ class MongoProjectionCheckpointStore:
                 generation=generation_value,
                 event_object_id=event_object_id,
                 change_stream_position=change_stream_position,
+                projection_latency_seconds=(
+                    float(projection_latency) if projection_latency is not None else None
+                ),
             )
         except (KeyError, TypeError, ValueError):
             raise ProjectionError("checkpoint_invalid") from None
@@ -120,6 +132,7 @@ class MongoProjectionCheckpointStore:
                     "generation": checkpoint.generation,
                     "event_object_id": checkpoint.event_object_id,
                     "change_stream_position": checkpoint.change_stream_position,
+                    "projection_latency_seconds": checkpoint.projection_latency_seconds,
                 },
                 upsert=True,
             )

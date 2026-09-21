@@ -75,6 +75,9 @@ class ProjectionCheckpoint:
     # convergence watermark because ObjectIds can be allocated before commit.
     event_object_id: str | None = None
     change_stream_position: str | None = None
+    # Processing delay for the last successful projection. This is measured
+    # from canonical ingestion time, never from the event's business time.
+    projection_latency_seconds: float | None = None
 
     @property
     def source_position(self) -> str | None:
@@ -277,6 +280,9 @@ class SearchProjector:
                 or (self._current.event_object_id if self._current else None),
                 change_stream_position=change.change_stream_position
                 or (self._current.change_stream_position if self._current else None),
+                projection_latency_seconds=_projection_latency(
+                    self._now(), change.event.ingested_at
+                ),
             )
             await self._checkpoint.save(checkpoint)
         except ProjectionError as error:
@@ -319,6 +325,9 @@ class SearchProjector:
                     or (self._current.event_object_id if self._current else None),
                     change_stream_position=change.change_stream_position
                     or (self._current.change_stream_position if self._current else None),
+                    projection_latency_seconds=_projection_latency(
+                        self._now(), change.event.ingested_at
+                    ),
                 )
                 await self._checkpoint.save(checkpoint)
                 self._current = checkpoint
@@ -563,7 +572,11 @@ class SearchProjector:
     def _status_from_checkpoint(self, checkpoint: ProjectionCheckpoint) -> ProjectionStatus:
         now = self._now()
         last_event = checkpoint.last_projected_event_at
-        lag = max(0.0, (now - last_event).total_seconds()) if last_event else None
+        # ``last_projected_event_at`` is the event's business timestamp and
+        # may legitimately be months old. Operational lag is the processing
+        # delay captured when the successful checkpoint was written.
+        del now
+        lag = checkpoint.projection_latency_seconds or 0.0
         status = ProjectionStatus(
             checkpoint.state,
             True,
@@ -586,3 +599,7 @@ class SearchProjector:
 
     def _emit(self, event: str, **fields: object) -> None:
         logger.info(event, extra={"event": event, "projector": self.projector, **fields})
+
+
+def _projection_latency(now: datetime, ingested_at: datetime) -> float:
+    return max(0.0, (now - ingested_at).total_seconds())

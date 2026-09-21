@@ -406,9 +406,14 @@ class MetricsRegistry:
                     f"{_format_number(cast(float, state['max']))}"
                 )
         for gauge_name in sorted(_GAUGE_NAMES):
+            help_text = (
+                "Last successful event projection processing delay in seconds"
+                if gauge_name == "event_platform_projection_lag_seconds"
+                else "Current bounded runtime state"
+            )
             lines.extend(
                 (
-                    f"# HELP {gauge_name} Current bounded runtime state",
+                    f"# HELP {gauge_name} {help_text}",
                     f"# TYPE {gauge_name} gauge",
                 )
             )

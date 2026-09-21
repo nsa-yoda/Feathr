@@ -227,7 +227,7 @@ search, analytics, realtime cache status, and read-only operations views. Event
 bursts are capped at 500 requests, with request starts paced across five seconds,
 and all API errors render their safe problem fields. The adjacent **Visualizer**
 page adds D3 7.9.0 operational charts for throughput, event types, queue health,
-latency buckets, cache effectiveness, projection lag, and dependency health. It
+latency buckets, cache effectiveness, projection processing delay, and dependency health. It
 polls the consolidated `/api/operations/visualizer` snapshot every 500 ms
 without overlapping requests, pauses while the tab is hidden, and retains only
 600 samples (five minutes). Existing Realtime and other views remain unchanged.

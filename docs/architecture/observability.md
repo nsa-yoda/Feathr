@@ -15,7 +15,7 @@ The production target is a metrics backend with:
 - queue visible/inflight/DLQ depth and oldest age;
 - worker processed/retried/DLQ and duration;
 - Mongo operation latency/errors;
-- ES projected/errors/lag/rebuild phase;
+- ES projected/errors/processing delay/rebuild phase;
 - cache hit/miss/bypass and computation latency;
 - rate-limit allowed/denied/fallback;
 - process worker/background-task health.
@@ -28,6 +28,11 @@ counters, fixed-bucket latency histograms, and current-state gauges for HTTP,
 queue, worker, Mongo, Elasticsearch, Redis, rate-limit, lifecycle, projection,
 and cache activity. Histogram labels and route families are fixed vocabularies;
 request IDs, event IDs, URLs, and arbitrary exception text never become labels.
+The projection lag gauge is the processing delay of the last successfully
+projected event, measured from canonical ingestion to checkpoint write. It does
+not subtract an event's business timestamp from wall-clock time, because
+canonical events may be historical, and it remains stable while the stream is
+idle.
 The request middleware accepts only canonical UUID request IDs, generates
 operation IDs, records completion status and latency, and emits JSON completion
 events with normalized route names.

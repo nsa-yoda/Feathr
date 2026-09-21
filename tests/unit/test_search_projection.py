@@ -495,7 +495,9 @@ async def test_status_lag_and_state_transition_logs_are_safe(
         projector.stop()
     assert status.last_success_at == now
     assert status.last_projected_event_at == make_event().timestamp
-    assert status.lag_seconds == pytest.approx(7200)
+    # The event has a historical business timestamp, but was ingested one hour
+    # and four minutes before projection. Business time must not be used here.
+    assert status.lag_seconds == pytest.approx(3845)
     assert {record.event for record in caplog.records} >= {
         "projector.start",
         "projector.success",
