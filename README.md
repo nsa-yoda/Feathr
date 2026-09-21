@@ -1,6 +1,9 @@
 # Distributed Event Processing Platform
 
-> **Current state:** Features 001-038 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, and executable Postman reviewer suite plus the reviewer operations UI. The ACR2 remediation keeps Mongo canonical, makes derived-service failure degradable, and adds fenced idempotency/projector ownership. Static gates pass locally; clean Compose smoke, browser, online rebuild, and hosted CI evidence remain environment-specific gates. See `CODEX-HANDOFF.md`, `AUTO_CODE_REVIEW_2.md`, and the active Spec Kit artifacts.
+[![CI](https://github.com/nsa-yoda/Feathr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nsa-yoda/Feathr/actions/workflows/ci.yml)
+[![Release validation](https://github.com/nsa-yoda/Feathr/actions/workflows/release.yml/badge.svg)](https://github.com/nsa-yoda/Feathr/actions/workflows/release.yml)
+
+> **Current state:** Features 001-038 provide the API, data services, lifecycle controls, failure coverage, Docker Compose configuration, executable Postman reviewer suite, and reviewer operations UI. The ACR2 remediation keeps Mongo canonical, makes derived-service failure degradable, and adds fenced idempotency/projector ownership. Static, service-backed, clean Compose smoke, online rebuild acceptance, and UI image checks are executable locally; the CI badges above report the GitHub-hosted workflow state. See `CODEX-HANDOFF.md`, `AUTO_CODE_REVIEW_2.md`, and the active Spec Kit artifacts.
 
 A production-oriented event ingestion, processing, search, analytics, caching, and reviewer-demo platform built with FastAPI, MongoDB, Elasticsearch, Redis, and an assessment-mandated in-process SQS-style queue.
 
@@ -231,6 +234,10 @@ latency buckets, cache effectiveness, projection processing delay, and dependenc
 polls the consolidated `/api/operations/visualizer` snapshot every 500 ms
 without overlapping requests, pauses while the tab is hidden, and retains only
 600 samples (five minutes). Existing Realtime and other views remain unchanged.
+The static SPA supports shareable links and browser back/forward navigation:
+`/dashboard`, `/generator`, `/events`, `/search`, `/analytics`, `/realtime`,
+`/visualizer`, and `/operations`. The root path `/` opens the dashboard, and
+nginx serves the SPA fallback for direct route loads.
 
 The final submission documentation includes:
 
@@ -263,9 +270,9 @@ JUnit, Compose logs, performance output, and release checksums as artifacts.
 
 ## Integration lifecycles
 
-Feature 019's lifecycle scenarios use real MongoDB, Elasticsearch, and Redis endpoints supplied through `MONGO_URI`, `ELASTICSEARCH_URL`, and `REDIS_URL`. The feature covers HTTP ingestion to canonical query, Mongo change-stream projection to search, analytics grouping, realtime cache miss/hit, duplicate redelivery, and the online rebuild continuity scenario. Run `make test-integration` for collection and `MONGO_URI=... ELASTICSEARCH_URL=... .venv/bin/pytest -q tests/integration/test_rebuild_live.py` for the required service-backed rebuild evidence. Missing or unavailable services are explicit skips, not passing evidence. Feature 019 scenarios use unique namespaces, deterministic barriers, bounded poll-until assertions, and cleanup in `finally` blocks.
+Feature 019's lifecycle scenarios use real MongoDB, Elasticsearch, and Redis endpoints supplied through `MONGO_URI`, `ELASTICSEARCH_URL`, and `REDIS_URL`. The feature covers HTTP ingestion to canonical query, Mongo change-stream projection to search, analytics grouping, realtime cache miss/hit, duplicate redelivery, and the online rebuild continuity scenario. Run `make test-integration` for dependency-optional collection, `make test-integration-required` for the complete service-backed gate, and `make test-acceptance-required` for the rebuild lifecycle evidence. Missing or unavailable services are explicit skips only in the optional selection; required gates fail. Feature 019 scenarios use unique namespaces, deterministic barriers, bounded poll-until assertions, and cleanup in `finally` blocks.
 
 Feature 020's deterministic failure selection runs without external endpoints:
-`make test-failure` currently passes 29 tests. See the [failure-suite
+`make test-failure`. See the [failure-suite
 README](tests/failure/README.md) for the covered invariants and keep this
 evidence separate from Feature 019's service-backed integration lifecycles.

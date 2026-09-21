@@ -1,0 +1,13 @@
+post:
+$speckit-staff-review-run
+$speckit-review-run all
+
+pre:
+$speckit-specify
+$speckit-clarify
+$speckit-plan
+$speckit-checklist
+$speckit-tasks
+$speckit-analyze
+$speckit-implement
+$speckit-converge
