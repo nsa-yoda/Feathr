@@ -137,7 +137,9 @@ def classify_route(*, method: str, path: str) -> RouteClass | None:
         ("/events/search", "/events/stats", "/search", "/stats", "/analytics")
     ):
         return RouteClass.EXPENSIVE_READ
-    if normalized.startswith(("/operations/search-rebuild", "/rebuild", "/admin", "/ops")):
+    if normalized.startswith(
+        ("/operations/search-rebuild", "/operations/visualizer", "/rebuild", "/admin", "/ops")
+    ):
         return RouteClass.OPS
     return RouteClass.NORMAL_READ
 

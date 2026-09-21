@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Feathr event platform reviewer console" />
   <title>Feathr Operations Console</title>
+  <link rel="stylesheet" href="/visualizer.css" />
   <style>
     :root { color-scheme: light; --ink:#172033; --muted:#64748b; --line:#dbe3ef; --surface:#fff; --wash:#f5f7fb; --accent:#1769aa; --good:#16794c; --warn:#a15c00; --bad:#b42318; }
     * { box-sizing:border-box; } body { margin:0; font:15px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); background:var(--wash); }
@@ -28,7 +29,7 @@
   <main id="app" aria-live="polite"></main>
   <script>
     'use strict';
-    const views = ['dashboard','generator','events','search','analytics','realtime','operations'];
+    const views = ['dashboard','generator','events','search','analytics','realtime','visualizer','operations'];
     const state = { view:'dashboard', last:null };
     const $ = (id) => document.getElementById(id);
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -124,9 +125,11 @@
         $('app').innerHTML=shell('Operations','Read-only component and dependency state. Raw payloads are intentionally hidden',`${cards}<div class="grid">${componentCards(health)}${card('Realtime total',realtime.total_events,`Cache ${realtime.by_event_type ? 'available' : 'unavailable'}`)}${card('Search rebuild',rebuild.phase || 'unavailable',rebuild.completed_at || rebuild.started_at || rebuild.detail || 'No rebuild record')}</div><div class="card"><h3>Safe operational metrics</h3><pre>${esc(safeMetrics || 'No bounded operational metrics reported.')}</pre></div><div class="notice">Raw DLQ payloads and credentials are never rendered.</div>`);
       } catch(e) { $('app').innerHTML=shell('Operations','Read-only component and dependency state. Raw payloads are intentionally hidden',errorBox(e)); }
     }
-    function render() { nav(); ({dashboard,generator,events:eventsView,search:searchView,analytics,realtime,operations}[state.view] || dashboard)(); }
-    if (typeof window !== 'undefined') window.__feathrConsole = {boundedBurst,burstOffset,pacedBurst,eventQuery,searchQuery,parseMetrics,metricValue,metricAverage,esc,problem,dashboard,generator,eventsView,searchView,analytics,realtime,operations};
+    function render() { nav(); if (state.view === 'visualizer') return window.__feathrVisualizerView ? window.__feathrVisualizerView() : ($('app').innerHTML = shell('Visualizer','Loading D3 visualizer…',loading())); if (window.__feathrVisualizerCleanup) window.__feathrVisualizerCleanup(); ({dashboard,generator,events:eventsView,search:searchView,analytics,realtime,operations}[state.view] || dashboard)(); }
+    if (typeof window !== 'undefined') window.__feathrConsole = {request,boundedBurst,burstOffset,pacedBurst,eventQuery,searchQuery,parseMetrics,metricValue,metricAverage,esc,problem,dashboard,generator,eventsView,searchView,analytics,realtime,operations};
     if (typeof document !== 'undefined') render();
   </script>
+  <script src="/vendor/d3.min.js"></script>
+  <script type="module" src="/visualizer.js"></script>
 </body>
 </html>

@@ -53,3 +53,15 @@ def test_valid_ingestion_returns_accepted_contract_and_metrics_change() -> None:
         assert body["event_id"]
         assert body["request_id"]
         assert client.get("/metrics").status_code == 200
+
+
+@pytest.mark.functional
+def test_visualizer_snapshot_is_bounded_and_degrades_without_canonical_services() -> None:
+    with TestClient(create_app()) as client:
+        response = client.get("/operations/visualizer?window_minutes=5")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["health"]["status"] in {"healthy", "degraded", "unhealthy"}
+    assert isinstance(body["metrics"], str)
+    assert body["realtime"] is None
+    assert body["realtime_cache"] == "UNAVAILABLE"

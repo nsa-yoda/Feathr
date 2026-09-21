@@ -28,6 +28,7 @@ from event_platform.api.routes.realtime_stats import router as realtime_stats_ro
 from event_platform.api.routes.rebuild import router as rebuild_router
 from event_platform.api.routes.search import router as search_router
 from event_platform.api.routes.stats import router as stats_router
+from event_platform.api.routes.visualizer import router as visualizer_router
 from event_platform.cache.realtime import RedisCache
 from event_platform.core.composition import build_application_services
 from event_platform.core.lifecycle import (
@@ -659,4 +660,5 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     app.include_router(rebuild_router)
     app.include_router(stats_router)
     app.include_router(realtime_stats_router)
+    app.include_router(visualizer_router)
     return app

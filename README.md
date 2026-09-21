@@ -174,6 +174,7 @@ tenant/role authorization at the trusted production edge.
 | Search | `GET /events/search` | Eventually consistent Elasticsearch projection |
 | Analytics/realtime | `/events/stats`, `/events/stats/realtime` | Mongo aggregation and Redis cache-aside |
 | Rebuild status | `/events/search/rebuild` | Read-only Mongo-backed rebuild state |
+| Visualizer snapshot | `/operations/visualizer` | Consolidated read-only metrics, health, and cached realtime analytics |
 | Reviewer UI | `http://localhost:3000` | Static console through nginx `/api/` proxy |
 
 ## Consistency and known limitations
@@ -224,7 +225,12 @@ Open `http://localhost:3000` after the Compose stack is running. The console
 provides dashboard, event generation, canonical events, eventually consistent
 search, analytics, realtime cache status, and read-only operations views. Event
 bursts are capped at 500 requests, with request starts paced across five seconds,
-and all API errors render their safe problem fields.
+and all API errors render their safe problem fields. The adjacent **Visualizer**
+page adds D3 7.9.0 operational charts for throughput, event types, queue health,
+latency buckets, cache effectiveness, projection lag, and dependency health. It
+polls the consolidated `/api/operations/visualizer` snapshot every 500 ms
+without overlapping requests, pauses while the tab is hidden, and retains only
+600 samples (five minutes). Existing Realtime and other views remain unchanged.
 
 The final submission documentation includes:
 

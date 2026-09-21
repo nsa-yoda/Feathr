@@ -18,6 +18,7 @@ _ROUTE_PATTERNS = (
     ("realtime_stats", "/events/stats/realtime"),
     ("stats", "/events/stats"),
     ("rebuild", "/operations/search-rebuild"),
+    ("visualizer", "/operations/visualizer"),
     ("events", "/events"),
 )
 _LABEL_RE = r"^[a-z][a-z0-9_]{0,31}$"
@@ -39,6 +40,7 @@ _ALLOWED_VALUES = {
             "stats",
             "realtime_stats",
             "rebuild",
+            "visualizer",
             "other",
         }
     ),

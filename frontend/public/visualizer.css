@@ -1,0 +1,13 @@
+.visualizer-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
+.live-indicator { border-radius:999px; padding:.45rem .75rem; font-weight:700; font-size:.88rem; background:#fff; border:1px solid var(--line); }
+.live-indicator.good { color:var(--good); border-color:#a9dec3; background:#effaf4; }
+.live-indicator.warn { color:var(--warn); border-color:#f0d29f; background:#fff8e8; }
+.health-row { display:flex; gap:.5rem; flex-wrap:wrap; margin:.75rem 0; }
+.health-pill { display:inline-flex; gap:.35rem; align-items:center; border:1px solid var(--line); border-radius:999px; padding:.3rem .55rem; background:var(--surface); font-size:.8rem; text-transform:capitalize; }
+.health-pill.good { color:var(--good); } .health-pill.warn { color:var(--warn); } .health-pill.bad { color:var(--bad); }
+.chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:.8rem; margin-top:.8rem; }
+.chart-card { min-width:0; overflow:hidden; } .chart-description { margin:.1rem 0 .35rem; font-size:.85rem; }
+.viz-chart { display:block; width:100%; min-height:220px; color:var(--muted); overflow:visible; }
+.viz-chart .domain, .viz-chart .tick line { stroke:var(--line); } .viz-chart .tick text, .viz-chart .legend text { fill:var(--muted); font-size:10px; }
+.viz-chart .legend text { font-weight:600; } .visualizer-card .metric { font-variant-numeric:tabular-nums; }
+@media (max-width:700px) { .chart-grid { grid-template-columns:1fr; } .viz-chart { min-height:190px; } }

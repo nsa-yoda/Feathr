@@ -460,6 +460,15 @@ Docker Compose services:
 - `redis` — cache/rate limiting;
 - `ui` — static reviewer console behind nginx/reverse proxy.
 
+The reviewer console's additive Visualizer page consumes the read-only
+`GET /operations/visualizer` snapshot. That endpoint combines the in-process
+bounded metrics registry, dependency health probes, and the existing cached
+realtime statistics service so one browser tick does not fan out into several
+independent requests. The page uses the locally vendored D3 7.9.0 bundle for
+incremental SVG data joins, retains a five-minute/600-sample rolling window,
+and cancels polling when hidden or unmounted. It is an operational view of
+actual platform state; it does not create or persist synthetic measurements.
+
 The app service runs one process. Production notes explain how SQS removes this restriction.
 
 ## 20. Deliberate non-goals
